@@ -10,6 +10,8 @@ describe("normalizeFormat", () => {
   it("normalizes the dirty data.gov.ua variants", () => {
     expect(normalizeFormat("xlxs")).toBe("XLSX");
     expect(normalizeFormat("xls xlsx")).toBe("XLSX");
+    expect(normalizeFormat("EXCEL (.XLSX)")).toBe("XLSX");
+    expect(normalizeFormat("excel")).toBe("XLSX");
     expect(normalizeFormat("application/x-7z-compressed")).toBe("7Z");
   });
 

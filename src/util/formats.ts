@@ -7,6 +7,9 @@
 const ALIASES: Record<string, string> = {
   "XLS XLSX": "XLSX",
   XLXS: "XLSX",
+  "EXCEL (.XLSX)": "XLSX",
+  "EXCEL (.XLS)": "XLS",
+  EXCEL: "XLSX",
   XLS: "XLS",
   "X-7Z-COMPRESSED": "7Z",
   "APPLICATION/X-7Z-COMPRESSED": "7Z",
