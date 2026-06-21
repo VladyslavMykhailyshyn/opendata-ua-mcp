@@ -19,16 +19,22 @@ export const trackUpdates: ToolFactory = (ctx): ToolDef => ({
   inputSchema: shape,
   handler: async (raw) => {
     const args = schema.parse(raw);
-    // Over-fetch a bit so client-side filtering still returns ~limit items.
-    const activities = await recentlyChanged(ctx.ckan, args.topic || args.organization ? args.limit * 5 : args.limit);
+    // Over-fetch so dedup + optional filtering still yield ~limit items.
+    const fetchN = Math.min(args.limit * (args.topic || args.organization ? 8 : 4), 200);
+    const activities = await recentlyChanged(ctx.ckan, fetchN);
 
     const topic = args.topic ? normalizeQuery(args.topic).toLowerCase() : undefined;
     const org = args.organization?.toLowerCase();
 
     const changes = [];
+    const seen = new Set<string>();
     for (const a of activities) {
       const pkg = a.data?.package;
       if (!pkg?.name) continue;
+      // Activity feed emits several events per dataset — keep only the latest
+      // (list is newest-first) per dataset.
+      if (seen.has(pkg.name)) continue;
+      seen.add(pkg.name);
       const title = pkg.title ?? pkg.name;
       const orgTitle = pkg.organization?.title ?? pkg.organization?.name;
       if (topic && !title.toLowerCase().includes(topic)) continue;

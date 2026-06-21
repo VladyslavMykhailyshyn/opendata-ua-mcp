@@ -17,7 +17,7 @@ Tools are **jobs-to-be-done**, not thin API wrappers. Each tool does a complete 
 | `find_datasets` | Find datasets by topic; ranked slim candidates + refine hints |
 | `explore_catalog` | Aggregate view (who publishes / how much) — counts only |
 | `inspect_dataset` | Full dataset card: license, freshness, resources |
-| `get_dataset_data` | Get the actual data (auto-picks best resource; DataStore or download+parse) |
+| `get_dataset_data` | Get the actual data — auto-picks best resource; DataStore or download+parse CSV/JSON/XLSX/XML, **including files inside ZIP archives** (ЄДР, debtors registries) |
 | `filter_data` | Filter rows / read-only SQL over a structured (DataStore) resource |
 | `track_updates` | Recently updated datasets, filterable by topic/org |
 

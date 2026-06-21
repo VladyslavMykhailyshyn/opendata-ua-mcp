@@ -2,7 +2,9 @@ import type { CkanResource } from "../ckan/types.js";
 import { normalizeFormat } from "./formats.js";
 
 // Preference order for "give me the data": structured + parseable first.
-const PREFERENCE = ["CSV", "TSV", "JSON", "GEOJSON", "XLSX", "XLS", "XML"];
+// ZIP is last — flagship registries (ЄДР, debtors) ship zipped; get_dataset_data
+// unpacks and parses the best inner file.
+const PREFERENCE = ["CSV", "TSV", "JSON", "GEOJSON", "XLSX", "XLS", "XML", "ZIP"];
 
 /**
  * Pick the best machine-readable resource from a dataset for get_dataset_data.

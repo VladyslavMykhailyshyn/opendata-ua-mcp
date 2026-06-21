@@ -6,8 +6,23 @@ import { normalizeFormat } from "../util/formats.js";
 import { resolvePackage } from "../util/resolve.js";
 import { pickBestResource } from "../util/resource-picker.js";
 import { downloadCapped, decodeText } from "../util/download.js";
-import { parseCsv, parseJsonTable, parseXlsx, type ParsedTable } from "../util/csv.js";
+import { parseCsv, parseJsonTable, parseXlsx, parseXmlTable, type ParsedTable } from "../util/csv.js";
+import { pickBestZipEntry } from "../util/zip.js";
 import { humanSize } from "../util/humanize.js";
+
+/** Parse a buffer into a table given its (normalized) format. */
+function parseByFormat(
+  buffer: Buffer,
+  fmt: string,
+  limit: number,
+  contentType?: string,
+): ParsedTable {
+  if (fmt === "XLSX" || fmt === "XLS") return parseXlsx(buffer, limit);
+  const text = decodeText(buffer, contentType);
+  if (fmt === "JSON" || fmt === "GEOJSON") return parseJsonTable(text, limit);
+  if (fmt === "XML") return parseXmlTable(text, limit);
+  return parseCsv(text, limit);
+}
 import { cleanFields, cleanRows } from "../util/datastore.js";
 import type { ToolContext, ToolDef, ToolFactory } from "./types.js";
 
@@ -69,7 +84,6 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
     if (!resource.url) {
       throw new CkanNotFoundError(`Ресурс ${resource.id} не має URL для завантаження`);
     }
-    const isBinary = fmt === "XLSX" || fmt === "XLS";
     const dl = await downloadCapped(
       resource.url,
       ctx.config.maxDownloadBytes,
@@ -77,30 +91,63 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
       ctx.config.userAgent,
     );
 
-    // Guard against files mislabeled as text (ZIP/PDF served as .csv/.json).
+    // Detect real container by magic bytes (files are often mislabeled).
     const magic = dl.buffer.subarray(0, 4);
     const isZip = magic[0] === 0x50 && magic[1] === 0x4b; // "PK"
     const isPdf = magic.toString("latin1", 0, 4) === "%PDF";
-    if (!isBinary && (isZip || isPdf)) {
+
+    if (isPdf) {
       return JSON.stringify({
         source: "file",
         picked_resource: { id: resource.id, name: resource.name, format: fmt },
-        note: `Файл насправді ${isZip ? "ZIP-архів" : "PDF"}, попри формат «${fmt}». Завантаж вручну.`,
+        note: `Файл — PDF, табличний парсинг неможливий. Завантаж вручну.`,
         full_data: { download_url: resource.url, size: humanSize(resource.size) },
       });
     }
 
+    // ZIP (flagship registries like ЄДР / реєстр боржників ship zipped):
+    // extract the best parseable inner file and parse that.
+    let buffer = dl.buffer;
+    let parseFmt = fmt;
+    let extractedFrom: string | undefined;
+    if (isZip) {
+      if (dl.truncated) {
+        return JSON.stringify({
+          source: "zip",
+          picked_resource: { id: resource.id, name: resource.name, format: fmt },
+          note: `ZIP-архів більший за ліміт завантаження (${humanSize(dl.bytes)}) — розпакувати частково неможливо. Завантаж вручну.`,
+          full_data: { download_url: resource.url, size: humanSize(resource.size) },
+        });
+      }
+      let picked;
+      try {
+        picked = pickBestZipEntry(dl.buffer);
+      } catch (err) {
+        return JSON.stringify({
+          source: "zip",
+          picked_resource: { id: resource.id, name: resource.name, format: fmt },
+          note: `Не вдалося відкрити ZIP-архів (${(err as Error).message}). Завантаж вручну.`,
+          full_data: { download_url: resource.url, size: humanSize(resource.size) },
+        });
+      }
+      const { best, names } = picked;
+      if (!best) {
+        return JSON.stringify({
+          source: "zip",
+          picked_resource: { id: resource.id, name: resource.name, format: fmt },
+          note: `ZIP-архів без машиночитного файлу всередині (${names.length} записів). Завантаж вручну.`,
+          archive_contents: names.slice(0, 20),
+          full_data: { download_url: resource.url, size: humanSize(resource.size) },
+        });
+      }
+      buffer = best.buffer;
+      parseFmt = best.format;
+      extractedFrom = best.name;
+    }
+
     let table: ParsedTable;
     try {
-      if (isBinary) {
-        table = parseXlsx(dl.buffer, args.limit);
-      } else {
-        const text = decodeText(dl.buffer, dl.contentType);
-        table =
-          fmt === "JSON" || fmt === "GEOJSON"
-            ? parseJsonTable(text, args.limit)
-            : parseCsv(text, args.limit);
-      }
+      table = parseByFormat(buffer, parseFmt, args.limit, isZip ? undefined : dl.contentType);
     } catch (err) {
       // Unparseable (PDF/scan/binary) — return metadata + link instead of dumping bytes.
       return JSON.stringify({
@@ -119,16 +166,23 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
       rows = rows.map((r) => Object.fromEntries(args.columns!.map((c) => [c, r[c]])));
     }
 
+    const notes: string[] = [];
+    if (extractedFrom) notes.push(`Видобуто «${extractedFrom}» з ZIP-архіву.`);
+    if (dl.truncated) notes.push(`Завантажено перші ${humanSize(dl.bytes)}; повний файл за посиланням.`);
+
     return JSON.stringify({
-      source: "file",
-      picked_resource: { id: resource.id, name: resource.name, format: fmt },
+      source: isZip ? "zip" : "file",
+      picked_resource: {
+        id: resource.id,
+        name: resource.name,
+        format: fmt,
+        ...(extractedFrom ? { extracted_from: extractedFrom, inner_format: parseFmt } : {}),
+      },
       schema: columns,
       preview_rows: rows,
       row_count_estimate: dl.truncated ? `≥${table.rowCount} (файл обрізано за лімітом)` : table.rowCount,
       full_data: { download_url: resource.url, size: humanSize(resource.size) },
-      ...(dl.truncated
-        ? { note: `Завантажено перші ${humanSize(dl.bytes)}; повний файл за посиланням.` }
-        : {}),
+      ...(notes.length ? { note: notes.join(" ") } : {}),
     });
   },
 });

@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { XMLParser } from "fast-xml-parser";
 
 export interface ParsedTable {
   columns: { col: string; type: string }[];
@@ -34,11 +35,24 @@ function summarize(rows: Record<string, unknown>[], previewLimit: number): Parse
   return { columns, rows: rows.slice(0, previewLimit), rowCount: rows.length };
 }
 
+/** Sniff the delimiter from the header line — Ukrainian CSVs often use ';'. */
+function sniffDelimiter(text: string): string {
+  const firstLine = text.slice(0, text.indexOf("\n") + 1 || text.length);
+  const counts: Record<string, number> = {
+    ";": (firstLine.match(/;/g) ?? []).length,
+    ",": (firstLine.match(/,/g) ?? []).length,
+    "\t": (firstLine.match(/\t/g) ?? []).length,
+    "|": (firstLine.match(/\|/g) ?? []).length,
+  };
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]![0];
+}
+
 export function parseCsv(text: string, previewLimit: number): ParsedTable {
   const parsed = Papa.parse<Record<string, unknown>>(text, {
     header: true,
     skipEmptyLines: true,
     dynamicTyping: false,
+    delimiter: sniffDelimiter(text),
   });
   return summarize(parsed.data, previewLimit);
 }
@@ -60,4 +74,31 @@ export function parseJsonTable(text: string, previewLimit: number): ParsedTable 
       ? ((data as { result: Record<string, unknown>[] }).result)
       : [data as Record<string, unknown>];
   return summarize(rows, previewLimit);
+}
+
+/** Find the largest array of object-records anywhere in a parsed structure. */
+function largestRecordArray(node: unknown, best: Record<string, unknown>[] = []): Record<string, unknown>[] {
+  if (Array.isArray(node)) {
+    const objs = node.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+    if (objs.length > best.length) best = objs as Record<string, unknown>[];
+    for (const item of node) best = largestRecordArray(item, best);
+  } else if (node && typeof node === "object") {
+    for (const v of Object.values(node)) best = largestRecordArray(v, best);
+  }
+  return best;
+}
+
+export function parseXmlTable(text: string, previewLimit: number): ParsedTable {
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "" });
+  const obj = parser.parse(text);
+  const rows = largestRecordArray(obj);
+  // Flatten one level so nested objects don't blow up the preview.
+  const flat = rows.map((r) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(r)) {
+      out[k] = v && typeof v === "object" ? JSON.stringify(v) : v;
+    }
+    return out;
+  });
+  return summarize(flat, previewLimit);
 }
