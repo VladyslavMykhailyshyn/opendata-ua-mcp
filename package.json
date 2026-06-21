@@ -1,0 +1,75 @@
+{
+  "name": "@opendata-ua/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for the Ukrainian open data portal (data.gov.ua) — read-only, token-efficient, job-shaped tools",
+  "type": "module",
+  "license": "MIT",
+  "author": "Open Data UA Community",
+  "homepage": "https://github.com/opendata-ua/opendata-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opendata-ua/opendata-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ckan",
+    "data.gov.ua",
+    "open-data",
+    "ukraine"
+  ],
+  "bin": {
+    "opendata-mcp": "dist/stdio.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README-uk.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/stdio.js",
+    "smoke": "node --import tsx scripts/smoke.ts",
+    "build:dxt": "node --import tsx scripts/build-dxt.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "lru-cache": "^11.0.2",
+    "papaparse": "^5.4.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^22.10.0",
+    "@types/papaparse": "^5.3.15",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "adm-zip": "^0.5.17",
+    "eslint": "^9.17.0",
+    "msw": "^2.7.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

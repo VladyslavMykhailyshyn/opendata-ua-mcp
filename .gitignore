@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.dxt
+.dxt-staging/
+*.log
+.DS_Store
+coverage/
+output/
+.env
+.env.*
