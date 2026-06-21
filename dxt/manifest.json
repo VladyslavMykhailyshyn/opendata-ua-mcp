@@ -4,7 +4,7 @@
   "display_name": "Відкриті дані України (data.gov.ua)",
   "version": "0.1.0",
   "description": "MCP-сервер для пошуку та аналізу відкритих даних України (data.gov.ua). Лише читання, без токенів.",
-  "long_description": "Знаходьте датасети, дивіться картки, отримуйте самі дані (CSV/JSON/XLSX), фільтруйте рядки та слідкуйте за оновленнями — природною мовою через Claude. Phase 1: read-only, публічні endpoint'и, автентифікація не потрібна.",
+  "long_description": "Знаходьте датасети, дивіться картки, отримуйте самі дані (CSV/JSON/XLSX), фільтруйте рядки та слідкуйте за оновленнями — природною мовою через будь-якого AI-агента з підтримкою MCP (Claude, ChatGPT, Google Gemini, Cursor, локальні моделі тощо). Phase 1: read-only, публічні endpoint'и, автентифікація не потрібна.",
   "author": { "name": "Open Data UA Community" },
   "license": "MIT",
   "keywords": ["ckan", "data.gov.ua", "ukraine", "open-data"],

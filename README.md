@@ -2,7 +2,9 @@
 
 [Українською](./README-uk.md)
 
-An open-source **MCP server** that lets AI assistants (Claude Desktop, Claude Code, any MCP client) search and analyze Ukraine's national open-data portal **[data.gov.ua](https://data.gov.ua)** in natural language.
+An open-source **MCP server** that lets **any MCP-compatible AI agent** search and analyze Ukraine's national open-data portal **[data.gov.ua](https://data.gov.ua)** in natural language.
+
+It speaks the [Model Context Protocol](https://modelcontextprotocol.io), so it works with any client that supports MCP — including **Claude** (Desktop / Code), **ChatGPT** (Developer Mode / custom connectors), **Google Gemini**, **Cursor**, **Cline / Continue**, **VS Code Copilot**, local models via **Ollama / LM Studio**, and your own agents built on the Python/TypeScript MCP SDKs. Not tied to any single vendor.
 
 **Phase 1: read-only, public endpoints — no API token, no auth required.**
 
@@ -21,18 +23,9 @@ Tools are **jobs-to-be-done**, not thin API wrappers. Each tool does a complete 
 
 ## Install
 
-### Claude Desktop (easiest) — DXT
+The server runs over **stdio**, the transport every MCP client understands. The config below is the same everywhere — only the file/menu where you paste it differs per client.
 
-1. Download `opendata-ua-mcp.dxt` from [Releases](https://github.com/opendata-ua/opendata-mcp/releases).
-2. Drag-and-drop it into Claude Desktop → Settings → Extensions. Done. No config.
-
-### npm
-
-```bash
-npx @opendata-ua/mcp-server
-```
-
-Add to `claude_desktop_config.json`:
+### Any MCP client (npm) — universal
 
 ```json
 {
@@ -45,12 +38,31 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
+Where to put it:
+
+| Client | Location |
+|---|---|
+| **Claude Desktop** | Settings → Developer → Edit Config (`claude_desktop_config.json`) |
+| **Claude Code** | `claude mcp add opendata-ua -- npx -y @opendata-ua/mcp-server` |
+| **ChatGPT** | Settings → Connectors → add MCP server (Developer Mode) |
+| **Google Gemini** | Gemini CLI / SDK `mcpServers` config |
+| **Cursor** | Settings → MCP → Add Server (`~/.cursor/mcp.json`) |
+| **Cline / Continue / VS Code** | the extension's MCP settings |
+| **Custom agent** | point your MCP SDK at `npx -y @opendata-ua/mcp-server` |
+
+### Claude Desktop — one-click DXT
+
+DXT is Claude Desktop's drag-and-drop bundle format:
+
+1. Download `opendata-ua-mcp.dxt` from [Releases](https://github.com/VladyslavMykhailyshyn/opendata-ua-mcp/releases).
+2. Drag it into Claude Desktop → Settings → Extensions. Done. No config.
+
 ### From source
 
 ```bash
 npm install
 npm run build
-node dist/stdio.js
+node dist/stdio.js   # any MCP client can spawn this
 ```
 
 ## Try it
