@@ -18,6 +18,10 @@ const ALIASES: Record<string, string> = {
   "APPLICATION/PDF": "PDF",
   "APPLICATION/ZIP": "ZIP",
   GEOJSON: "GEOJSON",
+  // Zipped CSV labels seen on the vehicles register ("csv, zip", "CSV ZIP").
+  "CSV, ZIP": "ZIP",
+  "CSV ZIP": "ZIP",
+  "APPLICATION/VND.OASIS.OPENDOCUMENT.SPREADSHEET": "ODS",
 };
 
 /** Canonicalize one raw format string. Returns "" for empty/unknown-empty. */
@@ -33,7 +37,7 @@ export function normalizeFormat(raw: string | undefined | null): string {
 }
 
 /** Machine-readable (structured) formats worth auto-parsing. */
-const MACHINE_READABLE = new Set(["CSV", "JSON", "GEOJSON", "XLSX", "XLS", "XML", "TSV"]);
+const MACHINE_READABLE = new Set(["CSV", "JSON", "GEOJSON", "XLSX", "XLS", "ODS", "XML", "TSV"]);
 
 export function isMachineReadable(format: string | undefined | null): boolean {
   return MACHINE_READABLE.has(normalizeFormat(format));
@@ -41,9 +45,30 @@ export function isMachineReadable(format: string | undefined | null): boolean {
 
 // Cyrillic letters that visually match Latin ones, used in format/file noise.
 const HOMOGLYPHS: Record<string, string> = {
-  с: "c", С: "C", а: "a", А: "A", е: "e", Е: "E", о: "o", О: "O",
-  р: "p", Р: "P", х: "x", Х: "X", і: "i", І: "I", у: "y", У: "Y",
-  к: "k", К: "K", м: "m", М: "M", т: "T", в: "B", Т: "T", В: "B",
+  с: "c",
+  С: "C",
+  а: "a",
+  А: "A",
+  е: "e",
+  Е: "E",
+  о: "o",
+  О: "O",
+  р: "p",
+  Р: "P",
+  х: "x",
+  Х: "X",
+  і: "i",
+  І: "I",
+  у: "y",
+  У: "Y",
+  к: "k",
+  К: "K",
+  м: "m",
+  М: "M",
+  т: "T",
+  в: "B",
+  Т: "T",
+  В: "B",
 };
 
 export function mapCyrillicHomoglyphs(s: string): string {

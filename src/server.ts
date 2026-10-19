@@ -10,6 +10,7 @@ import { inspectDataset } from "./tools/inspect-dataset.js";
 import { getDatasetData } from "./tools/get-dataset-data.js";
 import { filterData } from "./tools/filter-data.js";
 import { trackUpdates } from "./tools/track-updates.js";
+import { lookupRecord } from "./tools/lookup-record.js";
 
 const READ_TOOLS: ToolFactory[] = [
   findDatasets,
@@ -37,15 +38,15 @@ export function createServer(deps: ServerDeps = {}): McpServer {
     version: "0.1.0",
   });
 
-  registerReadTools(server, ctx);
+  registerReadTools(server, ctx, config.mirrorDir ? [...READ_TOOLS, lookupRecord] : READ_TOOLS);
   // Write seam: a future phase calls registerWriteTools(server, ctx) when a
   // DATA_GOV_UA_API_TOKEN is configured. Intentionally unwired in Phase 1.
 
   return server;
 }
 
-function registerReadTools(server: McpServer, ctx: ToolContext): void {
-  for (const factory of READ_TOOLS) {
+function registerReadTools(server: McpServer, ctx: ToolContext, tools: ToolFactory[]): void {
+  for (const factory of tools) {
     const tool = factory(ctx);
     server.registerTool(
       tool.name,

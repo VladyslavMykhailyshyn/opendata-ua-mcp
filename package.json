@@ -19,7 +19,8 @@
     "ukraine"
   ],
   "bin": {
-    "opendata-mcp": "dist/stdio.js"
+    "opendata-mcp": "dist/stdio.js",
+    "opendata-mcp-http": "dist/http.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -42,6 +43,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "start": "node dist/stdio.js",
+    "start:http": "node dist/http.js",
+    "sync": "node dist/sync.js",
     "smoke": "node --import tsx scripts/smoke.ts",
     "build:dxt": "node --import tsx scripts/build-dxt.ts",
     "test": "vitest run",
@@ -51,20 +54,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "fast-xml-parser": "^5.9.3",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "adm-zip": "^0.6.1",
+    "fast-xml-parser": "^5.11.2",
     "lru-cache": "^11.0.2",
-    "papaparse": "^5.4.1",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.10.0",
-    "@types/papaparse": "^5.3.15",
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
-    "adm-zip": "^0.5.17",
     "eslint": "^9.17.0",
     "msw": "^2.7.0",
     "prettier": "^3.4.2",

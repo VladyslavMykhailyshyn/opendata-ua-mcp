@@ -1,14 +1,21 @@
 import { z } from "zod";
 import { datastoreSearch, resourceShow } from "../ckan/actions.js";
-import type { CkanResource } from "../ckan/types.js";
+import type { CkanPackage, CkanResource } from "../ckan/types.js";
 import { CkanNotFoundError } from "../ckan/errors.js";
 import { normalizeFormat } from "../util/formats.js";
 import { resolvePackage } from "../util/resolve.js";
 import { pickBestResource } from "../util/resource-picker.js";
-import { downloadCapped, decodeText } from "../util/download.js";
-import { parseCsv, parseJsonTable, parseXlsx, parseXmlTable, type ParsedTable } from "../util/csv.js";
-import { pickBestZipEntry } from "../util/zip.js";
+import { downloadCapped, decodeText, trimToLastLine } from "../util/download.js";
+import {
+  parseCsv,
+  parseJsonTable,
+  parseXlsx,
+  parseXmlTable,
+  type ParsedTable,
+} from "../util/csv.js";
+import { officeContainerFormat, pickBestZipEntry } from "../util/zip.js";
 import { humanSize } from "../util/humanize.js";
+import { MIRRORED } from "../registries.js";
 
 /** Parse a buffer into a table given its (normalized) format. */
 function parseByFormat(
@@ -17,7 +24,7 @@ function parseByFormat(
   limit: number,
   contentType?: string,
 ): ParsedTable {
-  if (fmt === "XLSX" || fmt === "XLS") return parseXlsx(buffer, limit);
+  if (fmt === "XLSX" || fmt === "XLS" || fmt === "ODS") return parseXlsx(buffer, limit);
   const text = decodeText(buffer, contentType);
   if (fmt === "JSON" || fmt === "GEOJSON") return parseJsonTable(text, limit);
   if (fmt === "XML") return parseXmlTable(text, limit);
@@ -38,8 +45,8 @@ const schema = z.object(shape);
 async function resolveResource(
   ctx: ToolContext,
   args: z.infer<typeof schema>,
-): Promise<CkanResource> {
-  if (args.resource_id) return resourceShow(ctx.ckan, args.resource_id);
+): Promise<{ resource: CkanResource; pkg?: CkanPackage }> {
+  if (args.resource_id) return { resource: await resourceShow(ctx.ckan, args.resource_id) };
   if (!args.dataset) {
     throw new CkanNotFoundError("Вкажи dataset або resource_id");
   }
@@ -50,7 +57,7 @@ async function resolveResource(
       `У датасеті "${pkg.title ?? pkg.name}" немає машиночитного ресурсу (CSV/JSON/XLSX). Подивись inspect_dataset.`,
     );
   }
-  return best;
+  return { resource: best, pkg };
 }
 
 export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
@@ -60,7 +67,8 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
   inputSchema: shape,
   handler: async (raw) => {
     const args = schema.parse(raw);
-    const resource = await resolveResource(ctx, args);
+    const { resource, pkg } = await resolveResource(ctx, args);
+    const lookup = lookupHint(ctx, resource, pkg);
     const fmt = normalizeFormat(resource.format);
 
     // Path 1: DataStore (rare, ~0.3% of resources) — query directly, no download.
@@ -93,7 +101,10 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
 
     // Detect real container by magic bytes (files are often mislabeled).
     const magic = dl.buffer.subarray(0, 4);
-    const isZip = magic[0] === 0x50 && magic[1] === 0x4b; // "PK"
+    const hasZipMagic = magic[0] === 0x50 && magic[1] === 0x4b; // "PK"
+    // XLSX/ODS are ZIP containers too — parse them as spreadsheets, not archives.
+    const officeFmt = hasZipMagic ? officeContainerFormat(dl.buffer) : undefined;
+    const isZip = hasZipMagic && !officeFmt;
     const isPdf = magic.toString("latin1", 0, 4) === "%PDF";
 
     if (isPdf) {
@@ -108,14 +119,30 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
     // ZIP (flagship registries like ЄДР / реєстр боржників ship zipped):
     // extract the best parseable inner file and parse that.
     let buffer = dl.buffer;
-    let parseFmt = fmt;
+    let parseFmt = officeFmt ?? fmt;
     let extractedFrom: string | undefined;
+    if (officeFmt && dl.truncated) {
+      // A spreadsheet's index sits at the end of the container; a prefix is unreadable.
+      return JSON.stringify({
+        source: "file",
+        picked_resource: { id: resource.id, name: resource.name, format: fmt },
+        note: withLookup(
+          `Файл ${officeFmt} більший за ліміт завантаження (${humanSize(dl.bytes)}) — частково прочитати неможливо. Завантаж вручну.`,
+          lookup,
+        ),
+        full_data: { download_url: resource.url, size: humanSize(resource.size) },
+      });
+    }
+    if (!hasZipMagic && dl.truncated) buffer = trimToLastLine(buffer);
     if (isZip) {
       if (dl.truncated) {
         return JSON.stringify({
           source: "zip",
           picked_resource: { id: resource.id, name: resource.name, format: fmt },
-          note: `ZIP-архів більший за ліміт завантаження (${humanSize(dl.bytes)}) — розпакувати частково неможливо. Завантаж вручну.`,
+          note: withLookup(
+            `ZIP-архів більший за ліміт завантаження (${humanSize(dl.bytes)}) — розпакувати частково неможливо. Завантаж вручну.`,
+            lookup,
+          ),
           full_data: { download_url: resource.url, size: humanSize(resource.size) },
         });
       }
@@ -168,7 +195,9 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
 
     const notes: string[] = [];
     if (extractedFrom) notes.push(`Видобуто «${extractedFrom}» з ZIP-архіву.`);
-    if (dl.truncated) notes.push(`Завантажено перші ${humanSize(dl.bytes)}; повний файл за посиланням.`);
+    if (dl.truncated)
+      notes.push(`Завантажено перші ${humanSize(dl.bytes)}; повний файл за посиланням.`);
+    if (lookup) notes.push(lookup);
 
     return JSON.stringify({
       source: isZip ? "zip" : "file",
@@ -180,9 +209,33 @@ export const getDatasetData: ToolFactory = (ctx): ToolDef => ({
       },
       schema: columns,
       preview_rows: rows,
-      row_count_estimate: dl.truncated ? `≥${table.rowCount} (файл обрізано за лімітом)` : table.rowCount,
+      row_count_estimate: dl.truncated
+        ? `≥${table.rowCount} (файл обрізано за лімітом)`
+        : table.rowCount,
       full_data: { download_url: resource.url, size: humanSize(resource.size) },
       ...(notes.length ? { note: notes.join(" ") } : {}),
     });
   },
 });
+
+/** Full-file search beats a preview for registries mirrored on this server. */
+function lookupHint(
+  ctx: ToolContext,
+  resource: CkanResource,
+  pkg: CkanPackage | undefined,
+): string | undefined {
+  if (!ctx.config.mirrorDir || !pkg) return undefined;
+  const url = resource.url ?? "";
+  const def = MIRRORED.find(
+    (r) =>
+      (r.dataset === pkg.name || r.dataset === pkg.id) &&
+      (!r.mirror.resource || r.mirror.resource.test(url)),
+  );
+  return def
+    ? `Щоб знайти конкретний запис у всьому реєстрі, використай lookup_record (registry: "${def.key}").`
+    : undefined;
+}
+
+function withLookup(note: string, lookup: string | undefined): string {
+  return lookup ? `${note} ${lookup}` : note;
+}
