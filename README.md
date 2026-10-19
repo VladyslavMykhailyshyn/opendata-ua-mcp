@@ -12,14 +12,17 @@ It speaks the [Model Context Protocol](https://modelcontextprotocol.io), so it w
 
 Tools are **jobs-to-be-done**, not thin API wrappers. Each tool does a complete user task, composes several CKAN calls internally, hides portal quirks (UUID slugs, dirty formats, sparse DataStore, Unicode homoglyphs), and returns a **token-efficient slim result** (a search hit is ~150 B vs ~17 KB raw).
 
-| Tool | What it does |
-|---|---|
-| `find_datasets` | Find datasets by topic; ranked slim candidates + refine hints |
-| `explore_catalog` | Aggregate view (who publishes / how much) — counts only |
-| `inspect_dataset` | Full dataset card: license, freshness, resources |
-| `get_dataset_data` | Get the actual data — auto-picks best resource; DataStore or download+parse CSV/JSON/XLSX/XML, **including files inside ZIP archives** (ЄДР, debtors registries) |
-| `filter_data` | Filter rows / read-only SQL over a structured (DataStore) resource |
-| `track_updates` | Recently updated datasets, filterable by topic/org |
+| Tool               | What it does                                                                                                                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `find_datasets`    | Find datasets by topic; ranked slim candidates + refine hints                                                                                                                                                          |
+| `explore_catalog`  | Aggregate view (who publishes / how much) — counts only                                                                                                                                                                |
+| `inspect_dataset`  | Full dataset card: license, freshness, resources                                                                                                                                                                       |
+| `get_dataset_data` | Get the actual data — auto-picks best resource; DataStore or download+parse CSV/JSON/XLSX/XML, **including files inside ZIP archives** (ЄДР, debtors registries)                                                       |
+| `filter_data`      | Filter rows / read-only SQL over a structured (DataStore) resource                                                                                                                                                     |
+| `track_updates`    | Recently updated datasets, filterable by topic/org                                                                                                                                                                     |
+| `lookup_record`    | _Server deployments only._ Find one record in a full flagship registry — company by ЄДРПОУ/name, ФОП, vehicle by VIN, VAT/single-tax payer, debtor, bankruptcy case, court hearing — from a local copy refreshed daily |
+
+`find_datasets` also pins flagship registries asked for by name ("ЄДР", "реєстр ФОП", "авто"), retries zero-result queries with stemmed wildcards, and points searches for non-data services (Дія, court decisions search) to the right site.
 
 ## Install
 
@@ -40,15 +43,15 @@ The server runs over **stdio**, the transport every MCP client understands. The 
 
 Where to put it:
 
-| Client | Location |
-|---|---|
-| **Claude Desktop** | Settings → Developer → Edit Config (`claude_desktop_config.json`) |
-| **Claude Code** | `claude mcp add opendata-ua -- npx -y @opendata-ua/mcp-server` |
-| **ChatGPT** | Settings → Connectors → add MCP server (Developer Mode) |
-| **Google Gemini** | Gemini CLI / SDK `mcpServers` config |
-| **Cursor** | Settings → MCP → Add Server (`~/.cursor/mcp.json`) |
-| **Cline / Continue / VS Code** | the extension's MCP settings |
-| **Custom agent** | point your MCP SDK at `npx -y @opendata-ua/mcp-server` |
+| Client                         | Location                                                          |
+| ------------------------------ | ----------------------------------------------------------------- |
+| **Claude Desktop**             | Settings → Developer → Edit Config (`claude_desktop_config.json`) |
+| **Claude Code**                | `claude mcp add opendata-ua -- npx -y @opendata-ua/mcp-server`    |
+| **ChatGPT**                    | Settings → Connectors → add MCP server (Developer Mode)           |
+| **Google Gemini**              | Gemini CLI / SDK `mcpServers` config                              |
+| **Cursor**                     | Settings → MCP → Add Server (`~/.cursor/mcp.json`)                |
+| **Cline / Continue / VS Code** | the extension's MCP settings                                      |
+| **Custom agent**               | point your MCP SDK at `npx -y @opendata-ua/mcp-server`            |
 
 ### Claude Desktop — one-click DXT
 
@@ -65,6 +68,39 @@ npm run build
 node dist/stdio.js   # any MCP client can spawn this
 ```
 
+### Remote (Streamable HTTP)
+
+For clients that connect over the network instead of spawning a process:
+
+```bash
+npm run build
+MCP_HTTP_HOST=0.0.0.0 MCP_HTTP_PORT=3000 node dist/http.js
+```
+
+- MCP endpoint: `POST http://<host>:3000/mcp` (stateless; `GET`/`DELETE` return 405)
+- Health check: `GET http://<host>:3000/health`
+- No auth — put it behind a VPN, firewall or reverse proxy before exposing it.
+
+#### Registry mirror (`lookup_record`)
+
+The most-wanted registries are 30 MB–4 GB files, too big to fetch per request. `dist/sync.js` downloads them in full, streams them (ZIP, XML, CSV in UTF-8 or Windows-1251) into one SQLite file per registry, and skips unchanged resources. Set `MIRROR_DIR` on the HTTP server to enable `lookup_record`. Needs Node.js 22.5+ (`node:sqlite`) and ~25 GB of disk.
+
+```bash
+MIRROR_DIR=/var/lib/opendata-mcp node dist/sync.js              # all registries
+MIRROR_DIR=/var/lib/opendata-mcp node dist/sync.js edr-uo --force
+MIRROR_DIR=/var/lib/opendata-mcp node dist/sync.js vehicles --inspect  # print sample rows
+```
+
+Ready-made systemd units (server, daily sync timer) are in [`deploy/systemd`](deploy/systemd).
+
+```json
+{
+  "mcpServers": {
+    "opendata-ua": { "type": "http", "url": "http://<host>:3000/mcp" }
+  }
+}
+```
+
 ## Try it
 
 > "Find ecology datasets from Lviv published in 2024"
@@ -73,14 +109,17 @@ node dist/stdio.js   # any MCP client can spawn this
 
 ## Configuration (optional)
 
-| Env var | Default | Purpose |
-|---|---|---|
-| `DATA_GOV_UA_BASE_URL` | `https://data.gov.ua/api/3/action` | API base (mirror/dev portal) |
-| `CACHE_TTL_SECONDS` | `300` | LRU cache TTL for catalogs |
-| `HTTP_TIMEOUT_MS` | `30000` | Request timeout |
-| `MAX_RESPONSE_CHARS` | `60000` | Per-response context-budget ceiling |
-| `MAX_DOWNLOAD_BYTES` | `10000000` | Cap for files downloaded + parsed locally |
-| `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
+| Env var                | Default                            | Purpose                                            |
+| ---------------------- | ---------------------------------- | -------------------------------------------------- |
+| `DATA_GOV_UA_BASE_URL` | `https://data.gov.ua/api/3/action` | API base (mirror/dev portal)                       |
+| `CACHE_TTL_SECONDS`    | `300`                              | LRU cache TTL for catalogs                         |
+| `HTTP_TIMEOUT_MS`      | `30000`                            | Request timeout                                    |
+| `MAX_RESPONSE_CHARS`   | `60000`                            | Per-response context-budget ceiling                |
+| `MAX_DOWNLOAD_BYTES`   | `10000000`                         | Cap for files downloaded + parsed locally          |
+| `LOG_LEVEL`            | `info`                             | `debug`/`info`/`warn`/`error`                      |
+| `MCP_HTTP_HOST`        | `127.0.0.1`                        | HTTP transport bind address (`0.0.0.0` to expose)  |
+| `MCP_HTTP_PORT`        | `3000`                             | HTTP transport port                                |
+| `MIRROR_DIR`           | —                                  | Registry mirror directory; enables `lookup_record` |
 
 ## Develop
 

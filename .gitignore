@@ -8,3 +8,6 @@ coverage/
 output/
 .env
 .env.*
+
+# VPN configs (contain keys)
+*.ovpn

@@ -4,12 +4,14 @@ import { normalizeFormat } from "./formats.js";
 // Preference order for "give me the data": structured + parseable first.
 // ZIP is last — flagship registries (ЄДР, debtors) ship zipped; get_dataset_data
 // unpacks and parses the best inner file.
-const PREFERENCE = ["CSV", "TSV", "JSON", "GEOJSON", "XLSX", "XLS", "XML", "ZIP"];
+const PREFERENCE = ["CSV", "TSV", "JSON", "GEOJSON", "XLSX", "XLS", "ODS", "XML", "ZIP"];
 
 /**
  * Pick the best machine-readable resource from a dataset for get_dataset_data.
  * DataStore-active resources win (queryable without download); then by format
- * preference. Returns undefined if nothing parseable exists.
+ * preference; ties go to the most recently updated resource (yearly registries
+ * like vehicles list 2013…2026 files under one dataset). Returns undefined if
+ * nothing parseable exists.
  */
 export function pickBestResource(resources: CkanResource[] | undefined): CkanResource | undefined {
   const candidates = (resources ?? []).filter((r) => r.state !== "deleted" && r.url);
@@ -27,10 +29,14 @@ export function pickBestResource(resources: CkanResource[] | undefined): CkanRes
   let bestScore = 0;
   for (const r of candidates) {
     const s = score(r);
-    if (s > bestScore) {
+    if (s > bestScore || (s === bestScore && s > 0 && updatedAt(r) > updatedAt(best!))) {
       bestScore = s;
       best = r;
     }
   }
   return best;
+}
+
+function updatedAt(r: CkanResource): string {
+  return r.last_modified ?? r.created ?? "";
 }

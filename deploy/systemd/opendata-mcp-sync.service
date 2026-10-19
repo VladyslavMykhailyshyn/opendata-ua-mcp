@@ -1,0 +1,33 @@
+[Unit]
+Description=Refresh opendata-ua registry mirror for lookup_record
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=opendata-mcp
+Group=opendata-mcp
+WorkingDirectory=/opt/opendata-mcp
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/opendata-mcp/dist/sync.js
+Environment=NODE_ENV=production
+Environment=MIRROR_DIR=/var/lib/opendata-mcp
+Environment=LOG_LEVEL=info
+# Creates /var/lib/opendata-mcp owned by the service user (the only writable path).
+StateDirectory=opendata-mcp
+StateDirectoryMode=0755
+# Full registries are GBs of text: stay out of the server's way.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=4h
+MemoryMax=4G
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
