@@ -33,6 +33,8 @@ export const normalizeCode = (v: string) => v.replace(/[\s-]+/g, "").toUpperCase
 
 // Bounded so one huge free-text field can't bloat the index.
 const MAX_INDEXED_CHARS = 2000;
+// Some ЄДР records list thousands of founders/branches (one is 1.1 MB).
+const MAX_STORED_CHARS = 2000;
 
 export class MirrorWriter {
   private constructor(
@@ -72,7 +74,7 @@ export class MirrorWriter {
 
   add(row: Row): void {
     const id = ++this.rows;
-    this.insertRow.run(id, JSON.stringify(row));
+    this.insertRow.run(id, JSON.stringify(this.stored(row)));
     for (const col of this.spec.exact) {
       const v = row[col];
       if (v) this.insertKey.run(normalizeCode(v), col, id);
@@ -85,6 +87,18 @@ export class MirrorWriter {
       .slice(0, MAX_INDEXED_CHARS);
     if (body.trim()) this.insertText.run(id, body);
     if (id % 100_000 === 0) this.db.exec("COMMIT; BEGIN;");
+  }
+
+  /** Only the columns an answer needs, each bounded in length. */
+  private stored(row: Row): Row {
+    const { keep, exact, text } = this.spec;
+    const cols = keep ? [...exact, ...text, ...keep] : Object.keys(row);
+    const out: Row = {};
+    for (const c of cols) {
+      const v = row[c];
+      if (v) out[c] = v.length > MAX_STORED_CHARS ? v.slice(0, MAX_STORED_CHARS) + "…" : v;
+    }
+    return out;
   }
 
   /** Configured columns absent from the data — the portal changed its export. */

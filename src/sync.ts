@@ -1,7 +1,7 @@
 import { CkanClient } from "./ckan/client.js";
 import { loadConfig } from "./config.js";
 import { MIRRORED } from "./registries.js";
-import { syncRegistry } from "./mirror/sync.js";
+import { pruneMirror, syncRegistry } from "./mirror/sync.js";
 import { createLogger } from "./util/logger.js";
 
 /**
@@ -30,6 +30,12 @@ async function main(): Promise<number> {
   }
 
   const ckan = new CkanClient(config, log);
+  if (!inspect)
+    await pruneMirror(
+      config.mirrorDir,
+      MIRRORED.map((r) => r.key),
+      log,
+    );
   let failed = 0;
   for (const def of MIRRORED.filter((r) => !wanted.length || wanted.includes(r.key))) {
     try {

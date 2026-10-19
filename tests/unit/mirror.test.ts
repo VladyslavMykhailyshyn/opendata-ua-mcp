@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -8,6 +8,8 @@ import { csvRows, decodeStream, flatRecord, xmlRows, type Row } from "../../src/
 import { parseCsvRecord, sniffDelimiter } from "../../src/util/delimited.js";
 import { listZipEntries, openZipEntry } from "../../src/mirror/zip-stream.js";
 import { MirrorReader, MirrorWriter, ftsQuery } from "../../src/mirror/store.js";
+import { pruneMirror } from "../../src/mirror/sync.js";
+import { createLogger } from "../../src/util/logger.js";
 
 async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
@@ -190,5 +192,46 @@ describe("flatRecord", () => {
           '<BRANCHES><BRANCH><NAME>Філія 1</NAME></BRANCH><BRANCH code="2"><NAME>Філія 2</NAME></BRANCH></BRANCHES>',
       ),
     ).toEqual({ NAME: '"А&Б" Ї', BRANCHES: "Філія 1; Філія 2" });
+  });
+});
+
+describe("mirror trimming", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "mirror-trim-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  });
+
+  it("stores only key, text and kept columns, with long values capped", async () => {
+    const spec = {
+      format: "xml" as const,
+      exact: ["EDRPOU"],
+      text: ["NAME"],
+      keep: ["STAN", "FOUNDERS"],
+    };
+    const w = await MirrorWriter.create(dir, "t", spec);
+    w.add({
+      NAME: "ТОВ А",
+      EDRPOU: "01234567",
+      STAN: "зареєстровано",
+      STATUTE: "boilerplate",
+      FOUNDERS: "Ф".repeat(5000),
+    });
+    await w.commit({ registry: "t", dataset: "d", resources: [], row_count: 1, synced_at: "now" });
+    const reader = new MirrorReader(dir);
+    const [row] = (await reader.lookup("t", "01234567", 1))!.rows;
+    reader.close();
+    expect(Object.keys(row!).sort()).toEqual(["EDRPOU", "FOUNDERS", "NAME", "STAN"]);
+    expect(row!.FOUNDERS!.length).toBe(2001);
+  });
+
+  it("prunes databases of registries no longer mirrored", async () => {
+    for (const f of ["edr-uo.sqlite", "debtors.sqlite", "debtors.download", "notes.txt"]) {
+      await writeFile(join(dir, f), "");
+    }
+    await pruneMirror(dir, ["edr-uo"], createLogger({ logLevel: "error" }));
+    expect((await readdir(dir)).sort()).toEqual(["edr-uo.sqlite", "notes.txt"]);
   });
 });

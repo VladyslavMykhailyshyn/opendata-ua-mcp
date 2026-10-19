@@ -7,6 +7,8 @@
  *   portal search misses short names ("ЄДР", "реєстр ФОП", "авто").
  * - Entries with `mirror` are downloaded in full by `dist/sync.js` and indexed
  *   locally, so `lookup_record` can find one record in files of 30 MB–3 GB.
+ *   Only top-demand registries are mirrored, with only the columns an answer
+ *   needs; the rest stay search pins.
  */
 
 export interface MirrorSpec {
@@ -22,6 +24,12 @@ export interface MirrorSpec {
   text: string[];
   /** Rename unreadable source headers. */
   rename?: Record<string, string>;
+  /**
+   * Columns stored for answers (exact/text columns are always kept). Unset =
+   * all. Trims boilerplate like ЄДР's statute text: the mirror holds what a
+   * lookup answers, not a copy of the export.
+   */
+  keep?: string[];
 }
 
 export interface RegistryDef {
@@ -59,6 +67,18 @@ export const REGISTRIES: RegistryDef[] = [
       recordTag: "SUBJECT",
       exact: ["EDRPOU"],
       text: ["NAME", "SHORT_NAME"],
+      keep: [
+        "OPF",
+        "STAN",
+        "SIGNERS",
+        "FOUNDERS",
+        "BENEFICIARIES",
+        "AUTHORIZED_CAPITAL",
+        "REGISTRATION",
+        "TERMINATION_STARTED_INFO",
+        "BANKRUPTCY_READJUSTMENT_INFO",
+        "TERMINATED_INFO",
+      ],
     },
   },
   {
@@ -73,6 +93,7 @@ export const REGISTRIES: RegistryDef[] = [
       recordTag: "SUBJECT",
       exact: [],
       text: ["NAME"],
+      keep: ["STAN", "ADDRESS", "KVED", "REGISTRATION", "TERMINATED_INFO"],
     },
   },
   {
@@ -86,6 +107,7 @@ export const REGISTRIES: RegistryDef[] = [
       exact: ["VIN"],
       text: ["BRAND", "MODEL"],
       rename: { "CD.OPER_CODE||'-'||CD.OPERAS": "OPERATION" },
+      keep: ["OPERATION", "D_REG", "DEP", "MAKE_YEAR", "COLOR", "KIND", "BODY", "FUEL", "CAPACITY"],
     },
   },
   {
@@ -101,16 +123,12 @@ export const REGISTRIES: RegistryDef[] = [
     title: "Реєстр платників єдиного податку",
     dataset: "198185ea-44d6-48f0-877c-44251c413f64",
     aliases: re("єдин\\p{L}* податк"),
-    lookupHint: "платник єдиного податку за кодом або назвою",
-    mirror: { resource: /reestr_edpod\.zip$/i, format: "csv", exact: ["tin"], text: ["name"] },
   },
   {
     key: "debtors",
     title: "Єдиний реєстр боржників",
     dataset: "506734bf-2480-448c-a2b4-90b6d06df11e",
     aliases: re("боржник", W("єрб")),
-    lookupHint: "боржник за ПІБ/назвою або кодом: виконавчі провадження",
-    mirror: { format: "csv", exact: ["DEBTOR_CODE"], text: ["DEBTOR_NAME"] },
   },
   {
     key: "bankruptcy",

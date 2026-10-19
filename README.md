@@ -12,15 +12,15 @@ It speaks the [Model Context Protocol](https://modelcontextprotocol.io), so it w
 
 Tools are **jobs-to-be-done**, not thin API wrappers. Each tool does a complete user task, composes several CKAN calls internally, hides portal quirks (UUID slugs, dirty formats, sparse DataStore, Unicode homoglyphs), and returns a **token-efficient slim result** (a search hit is ~150 B vs ~17 KB raw).
 
-| Tool               | What it does                                                                                                                                                                                                           |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `find_datasets`    | Find datasets by topic; ranked slim candidates + refine hints                                                                                                                                                          |
-| `explore_catalog`  | Aggregate view (who publishes / how much) — counts only                                                                                                                                                                |
-| `inspect_dataset`  | Full dataset card: license, freshness, resources                                                                                                                                                                       |
-| `get_dataset_data` | Get the actual data — auto-picks best resource; DataStore or download+parse CSV/JSON/XLSX/XML, **including files inside ZIP archives** (ЄДР, debtors registries)                                                       |
-| `filter_data`      | Filter rows / read-only SQL over a structured (DataStore) resource                                                                                                                                                     |
-| `track_updates`    | Recently updated datasets, filterable by topic/org                                                                                                                                                                     |
-| `lookup_record`    | _Server deployments only._ Find one record in a full flagship registry — company by ЄДРПОУ/name, ФОП, vehicle by VIN, VAT/single-tax payer, debtor, bankruptcy case, court hearing — from a local copy refreshed daily |
+| Tool               | What it does                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `find_datasets`    | Find datasets by topic; ranked slim candidates + refine hints                                                                                                                                         |
+| `explore_catalog`  | Aggregate view (who publishes / how much) — counts only                                                                                                                                               |
+| `inspect_dataset`  | Full dataset card: license, freshness, resources                                                                                                                                                      |
+| `get_dataset_data` | Get the actual data — auto-picks best resource; DataStore or download+parse CSV/JSON/XLSX/XML, **including files inside ZIP archives** (ЄДР, debtors registries)                                      |
+| `filter_data`      | Filter rows / read-only SQL over a structured (DataStore) resource                                                                                                                                    |
+| `track_updates`    | Recently updated datasets, filterable by topic/org                                                                                                                                                    |
+| `lookup_record`    | _Server deployments only._ Find one record in a full top-demand registry — company by ЄДРПОУ/name, ФОП, vehicle by VIN, VAT payer, bankruptcy case, court hearing — from a local copy refreshed daily |
 
 `find_datasets` also pins flagship registries asked for by name ("ЄДР", "реєстр ФОП", "авто"), retries zero-result queries with stemmed wildcards, and points searches for non-data services (Дія, court decisions search) to the right site.
 
@@ -83,7 +83,7 @@ MCP_HTTP_HOST=0.0.0.0 MCP_HTTP_PORT=3000 node dist/http.js
 
 #### Registry mirror (`lookup_record`)
 
-The most-wanted registries are 30 MB–4 GB files, too big to fetch per request. `dist/sync.js` downloads them in full, streams them (ZIP, XML, CSV in UTF-8 or Windows-1251) into one SQLite file per registry, and skips unchanged resources. Set `MIRROR_DIR` on the HTTP server to enable `lookup_record`. Needs Node.js 22.5+ (`node:sqlite`) and ~25 GB of disk.
+The most-wanted registries are 30 MB–4 GB files, too big to fetch per request. `dist/sync.js` downloads them in full, streams them (ZIP, XML, CSV in UTF-8 or Windows-1251) into one SQLite file per registry, and skips unchanged resources. Set `MIRROR_DIR` on the HTTP server to enable `lookup_record`. Only the columns an answer needs are stored. Needs Node.js 22.5+ (`node:sqlite`).
 
 ```bash
 MIRROR_DIR=/var/lib/opendata-mcp node dist/sync.js              # all registries

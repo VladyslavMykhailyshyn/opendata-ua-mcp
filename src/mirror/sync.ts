@@ -1,5 +1,5 @@
 import { createWriteStream, createReadStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -158,4 +158,21 @@ function renameColumns(row: Row, rename: Record<string, string>): Row {
   const out: Row = {};
   for (const [k, v] of Object.entries(row)) out[rename[k] ?? k] = v;
   return out;
+}
+
+/** Delete databases of registries that are no longer mirrored. */
+export async function pruneMirror(dir: string, keepKeys: string[], log: Logger): Promise<void> {
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return;
+  }
+  for (const f of files) {
+    const key = f.replace(/\.sqlite(\.tmp)?$|\.download$/, "");
+    if (key !== f && !keepKeys.includes(key)) {
+      await rm(join(dir, f), { force: true });
+      log.info("mirror pruned", { file: f });
+    }
+  }
 }
