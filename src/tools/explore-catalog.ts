@@ -1,18 +1,18 @@
 import { z } from "zod";
 import { groupList, packageSearch } from "../ckan/actions.js";
-import { buildFq } from "../ckan/solr.js";
+import { assertPlainQuery, buildFq } from "../ckan/solr.js";
 import { normalizeFormat } from "../util/formats.js";
 import { normalizeQuery } from "../util/unicode.js";
 import type { ToolDef, ToolFactory } from "./types.js";
 
 const shape = {
-  query: z.string().optional().describe("Звузити до теми перед агрегуванням"),
+  query: z.string().max(300).optional().describe("Звузити до теми перед агрегуванням"),
   group_by: z
     .enum(["organization", "category", "format"])
     .default("organization")
     .describe("За чим рахувати: розпорядник / категорія / формат"),
-  category: z.string().optional().describe("Slug категорії-фільтра"),
-  organization: z.string().optional().describe("Slug розпорядника-фільтра"),
+  category: z.string().max(300).optional().describe("Slug категорії-фільтра"),
+  organization: z.string().max(300).optional().describe("Slug розпорядника-фільтра"),
   limit: z.number().int().min(1).max(50).default(15),
 };
 
@@ -33,14 +33,16 @@ export const exploreCatalog: ToolFactory = (ctx): ToolDef => ({
   description:
     "Огляд каталогу data.gov.ua агрегатами (без видачі самих датасетів): скільки всього, хто публікує найбільше, розподіл за категоріями/форматами. Дешево за токенами. Використовуй для «хто публікує найбільше даних про X», «скільки датасетів про Y».",
   inputSchema: shape,
-  handler: async (raw) => {
+  handler: async (raw, call) => {
     const args = schema.parse(raw);
+    assertPlainQuery(args.query);
+    const ckan = ctx.ckan.withSignal(call.signal);
     const field = FACET_FIELD[args.group_by]!;
     const fq = buildFq({
       organization: args.organization,
       category: args.category,
     });
-    const result = await packageSearch(ctx.ckan, {
+    const result = await packageSearch(ckan, {
       q: args.query ? normalizeQuery(args.query) : undefined,
       fq,
       rows: 0,
@@ -50,7 +52,7 @@ export const exploreCatalog: ToolFactory = (ctx): ToolDef => ({
 
     let labels: Record<string, string> = {};
     if (args.group_by === "category") {
-      const groups = await groupList(ctx.ckan);
+      const groups = await groupList(ckan);
       labels = Object.fromEntries(groups.map((g) => [g.name, g.title ?? g.display_name ?? g.name]));
     }
 

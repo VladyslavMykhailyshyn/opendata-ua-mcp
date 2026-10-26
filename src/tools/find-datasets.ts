@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { packageSearch, packageShow } from "../ckan/actions.js";
 import type { CkanFacet } from "../ckan/types.js";
-import { buildFq, buildSort, type SortKey } from "../ckan/solr.js";
+import { assertPlainQuery, buildFq, buildSort, type SortKey } from "../ckan/solr.js";
 import { normalizeFormat } from "../util/formats.js";
 import { normalizeQuery } from "../util/unicode.js";
 import { capPayload, makeEnvelope } from "../util/envelope.js";
@@ -11,13 +11,21 @@ import { registriesForQuery, type RegistryDef } from "../registries.js";
 import type { ToolDef, ToolFactory } from "./types.js";
 
 const shape = {
-  query: z.string().optional().describe("Тема або ключові слова (напр. «закупівлі громади 2024»)"),
-  category: z.string().optional().describe("Slug тематичної категорії (напр. 'ekolohiia')"),
-  organization: z.string().optional().describe("Slug розпорядника"),
-  format: z.string().optional().describe("Формат файлу: CSV, JSON, XLSX, …"),
-  tags: z.array(z.string()).optional(),
+  query: z
+    .string()
+    .max(300)
+    .optional()
+    .describe("Тема або ключові слова (напр. «закупівлі громади 2024»)"),
+  category: z
+    .string()
+    .max(300)
+    .optional()
+    .describe("Slug тематичної категорії (напр. 'ekolohiia')"),
+  organization: z.string().max(300).optional().describe("Slug розпорядника"),
+  format: z.string().max(300).optional().describe("Формат файлу: CSV, JSON, XLSX, …"),
+  tags: z.array(z.string().max(300)).max(10).optional(),
   limit: z.number().int().min(1).max(100).default(5),
-  offset: z.number().int().min(0).default(0),
+  offset: z.number().int().min(0).max(10_000).default(0),
   sort: z.enum(["relevance", "modified_desc", "views_desc", "created_desc"]).default("relevance"),
 };
 
@@ -41,8 +49,10 @@ export const findDatasets: ToolFactory = (ctx): ToolDef => ({
   description:
     "Знайти датасети на data.gov.ua за темою. Повертає компактний ранжований список кандидатів (назва, розпорядник, формати, свіжість, посилання) + підказки для звуження пошуку (топ розпорядники/категорії/формати). Використовуй це для будь-якого «знайди дані про …».",
   inputSchema: shape,
-  handler: async (raw) => {
+  handler: async (raw, call) => {
     const args = schema.parse(raw);
+    assertPlainQuery(args.query);
+    const ckan = ctx.ckan.withSignal(call.signal);
     const q = args.query ? normalizeQuery(args.query) : undefined;
     const fq = buildFq({
       organization: args.organization,
@@ -51,7 +61,7 @@ export const findDatasets: ToolFactory = (ctx): ToolDef => ({
       tags: args.tags,
     });
     const search = (query: string | undefined) =>
-      packageSearch(ctx.ckan, {
+      packageSearch(ckan, {
         q: query,
         fq,
         rows: args.limit,
@@ -109,7 +119,7 @@ export const findDatasets: ToolFactory = (ctx): ToolDef => ({
       const out: DatasetHit[] = [];
       for (const id of datasets) {
         try {
-          out.push({ ...toDatasetHit(await packageShow(ctx.ckan, id)), match: "registry" });
+          out.push({ ...toDatasetHit(await packageShow(ckan, id)), match: "registry" });
         } catch (err) {
           // A moved/renamed registry must not break search itself.
           ctx.log.warn("registry pin failed", { dataset: id, message: (err as Error).message });

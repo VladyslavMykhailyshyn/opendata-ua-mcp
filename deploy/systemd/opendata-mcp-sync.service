@@ -12,9 +12,13 @@ ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/opendata-mcp/
 Environment=NODE_ENV=production
 Environment=MIRROR_DIR=/var/lib/opendata-mcp
 Environment=LOG_LEVEL=info
-# Creates /var/lib/opendata-mcp owned by the service user (the only writable path).
-StateDirectory=opendata-mcp
-StateDirectoryMode=0755
+# SQLite builds multi-GB indexes through temp files; keep them on the state
+# volume instead of a small PrivateTmp.
+Environment=SQLITE_TMPDIR=/var/lib/opendata-mcp/tmp
+# Creates /var/lib/opendata-mcp (+ tmp) owned by the service user — the only
+# writable path. 0750 so the group (the server) can read, nobody else can.
+StateDirectory=opendata-mcp opendata-mcp/tmp
+StateDirectoryMode=0750
 # Full registries are GBs of text: stay out of the server's way.
 Nice=10
 IOSchedulingClass=idle
@@ -26,8 +30,22 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
+TasksMax=64

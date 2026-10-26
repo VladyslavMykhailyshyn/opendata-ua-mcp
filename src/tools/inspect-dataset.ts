@@ -7,6 +7,7 @@ import type { ToolDef, ToolFactory } from "./types.js";
 const shape = {
   dataset: z
     .string()
+    .max(300)
     .describe("ID/slug датасету АБО його назва (якщо назва — буде автопошук найкращого збігу)"),
 };
 
@@ -17,9 +18,9 @@ export const inspectDataset: ToolFactory = (ctx): ToolDef => ({
   description:
     "Детальна картка одного датасету перед використанням: опис, розпорядник, ліцензія (+URL), свіжість, частота оновлення, і список ресурсів з форматом, розміром та ознакою machine_readable. Приймає ID/slug або назву (автопошук). Далі бери дані через get_dataset_data.",
   inputSchema: shape,
-  handler: async (raw) => {
+  handler: async (raw, call) => {
     const args = schema.parse(raw);
-    const pkg = await resolvePackage(ctx.ckan, args.dataset);
+    const pkg = await resolvePackage(ctx.ckan.withSignal(call.signal), args.dataset);
     const card = toDatasetCard(pkg);
     return capPayload(
       { count: 1, returned: 1, results: [card], more: false, source_url: card.dataset_url },

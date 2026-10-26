@@ -78,8 +78,9 @@ MCP_HTTP_HOST=0.0.0.0 MCP_HTTP_PORT=3000 node dist/http.js
 ```
 
 - MCP endpoint: `POST http://<host>:3000/mcp` (stateless; `GET`/`DELETE` return 405)
-- Health check: `GET http://<host>:3000/health`
-- No auth — put it behind a VPN, firewall or reverse proxy before exposing it.
+- Health check: `GET http://<host>:3000/health` (returns 503 while the server drains on `SIGTERM`)
+
+**Production notes.** There is no authentication by default: either restrict port 3000 with a firewall to your VPN subnet, or set `MCP_AUTH_TOKEN` (clients then send `Authorization: Bearer <token>`) and `MCP_ALLOWED_HOSTS` to pin the `Host` header. JSON-RPC batches are rejected (400), requests are rate-limited per client IP (`MCP_RATE_LIMIT_PER_MINUTE`, 429 with `Retry-After`), bodies are capped at 1 MB, and each tool call has a deadline and a concurrency cap (see the env table). Access logs record IP, status, method and tool name — never arguments. Note that `lookup_record` serves personal data (names, addresses, VINs) that the public registries publish; deploy it only where that is appropriate.
 
 #### Registry mirror (`lookup_record`)
 
@@ -109,17 +110,24 @@ Ready-made systemd units (server, daily sync timer) are in [`deploy/systemd`](de
 
 ## Configuration (optional)
 
-| Env var                | Default                            | Purpose                                            |
-| ---------------------- | ---------------------------------- | -------------------------------------------------- |
-| `DATA_GOV_UA_BASE_URL` | `https://data.gov.ua/api/3/action` | API base (mirror/dev portal)                       |
-| `CACHE_TTL_SECONDS`    | `300`                              | LRU cache TTL for catalogs                         |
-| `HTTP_TIMEOUT_MS`      | `30000`                            | Request timeout                                    |
-| `MAX_RESPONSE_CHARS`   | `60000`                            | Per-response context-budget ceiling                |
-| `MAX_DOWNLOAD_BYTES`   | `10000000`                         | Cap for files downloaded + parsed locally          |
-| `LOG_LEVEL`            | `info`                             | `debug`/`info`/`warn`/`error`                      |
-| `MCP_HTTP_HOST`        | `127.0.0.1`                        | HTTP transport bind address (`0.0.0.0` to expose)  |
-| `MCP_HTTP_PORT`        | `3000`                             | HTTP transport port                                |
-| `MIRROR_DIR`           | —                                  | Registry mirror directory; enables `lookup_record` |
+| Env var                     | Default                            | Purpose                                                                |
+| --------------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| `DATA_GOV_UA_BASE_URL`      | `https://data.gov.ua/api/3/action` | API base (mirror/dev portal)                                           |
+| `CACHE_TTL_SECONDS`         | `300`                              | LRU cache TTL for catalogs                                             |
+| `HTTP_TIMEOUT_MS`           | `30000`                            | Request timeout                                                        |
+| `MAX_RESPONSE_CHARS`        | `60000`                            | Per-response context-budget ceiling                                    |
+| `MAX_DOWNLOAD_BYTES`        | `10000000`                         | Cap for files downloaded + parsed locally                              |
+| `LOG_LEVEL`                 | `info`                             | `debug`/`info`/`warn`/`error`                                          |
+| `MCP_HTTP_HOST`             | `127.0.0.1`                        | HTTP transport bind address (`0.0.0.0` to expose)                      |
+| `MCP_HTTP_PORT`             | `3000`                             | HTTP transport port                                                    |
+| `MIRROR_DIR`                | —                                  | Registry mirror directory; enables `lookup_record`                     |
+| `TOOL_TIMEOUT_MS`           | `60000`                            | Deadline for one tool call (all upstream calls + parsing)              |
+| `MAX_CONCURRENT_TOOLS`      | `8`                                | Tool calls running at once per process                                 |
+| `MAX_QUEUED_TOOLS`          | `32`                               | Calls allowed to wait for a slot; beyond that: "busy"                  |
+| `MAX_CONCURRENT_UPSTREAM`   | `6`                                | Simultaneous requests to data.gov.ua                                   |
+| `MCP_RATE_LIMIT_PER_MINUTE` | `120`                              | HTTP transport: requests per minute per client IP (`0` = off)          |
+| `MCP_AUTH_TOKEN`            | —                                  | HTTP transport: require `Authorization: Bearer <token>` (min 16 chars) |
+| `MCP_ALLOWED_HOSTS`         | —                                  | HTTP transport: accepted `Host` values, comma-separated                |
 
 ## Develop
 
