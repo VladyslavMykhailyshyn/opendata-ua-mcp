@@ -39,6 +39,10 @@ export function sniffEncoding(head: Buffer): string {
   }
 }
 
+// A line or record that never ends (binary garbage, a missing closing tag)
+// must not grow the buffer until the sync is OOM-killed.
+const MAX_BUFFER_CHARS = 16 * 1024 * 1024;
+
 /** Split a text stream into lines (LF or CRLF). */
 async function* lines(text: AsyncIterable<string>): AsyncGenerator<string> {
   let rest = "";
@@ -51,11 +55,20 @@ async function* lines(text: AsyncIterable<string>): AsyncGenerator<string> {
       start = nl + 1;
     }
     rest = rest.slice(start);
+    if (rest.length > MAX_BUFFER_CHARS) throw new Error("line longer than 16 MB (not a text file?)");
   }
   if (rest) yield rest.endsWith("\r") ? rest.slice(0, -1) : rest;
 }
 
-export async function* csvRows(text: AsyncIterable<string>): AsyncGenerator<Row> {
+export interface CsvRowsOptions {
+  /** Called once at the end with the number of malformed records skipped. */
+  onDropped?: (count: number) => void;
+}
+
+export async function* csvRows(
+  text: AsyncIterable<string>,
+  opts: CsvRowsOptions = {},
+): AsyncGenerator<Row> {
   const reader = new DelimitedReader();
   for await (const line of lines(text)) {
     const fields = reader.push(line);
@@ -65,6 +78,10 @@ export async function* csvRows(text: AsyncIterable<string>): AsyncGenerator<Row>
       if (v !== "" && v !== "null") row[col] = v;
     }
     yield row;
+  }
+  // The reader may or may not count what it dropped; report it when it does.
+  if (opts.onDropped && "dropped" in reader && typeof reader.dropped === "number") {
+    opts.onDropped(reader.dropped);
   }
 }
 
@@ -81,16 +98,22 @@ export async function* xmlRows(text: AsyncIterable<string>, tag: string): AsyncG
   const close = `</${tag}>`;
   let buf = "";
   for await (const chunk of text) {
+    const scanned = buf.length;
     buf += chunk;
     let start = buf.indexOf(open);
     while (start >= 0) {
-      const end = buf.indexOf(close, start);
+      // The previous pass already searched the old buffer, so a closing tag
+      // can only begin in the new chunk (or straddle the seam).
+      const end = buf.indexOf(close, Math.max(start + open.length, scanned - close.length));
       if (end < 0) break;
       yield flatRecord(buf.slice(start + open.length, end));
       start = buf.indexOf(open, end + close.length);
     }
     // Keep only the unfinished block (or a tail that may hold a split tag).
     buf = start >= 0 ? buf.slice(start) : buf.slice(-open.length);
+    if (buf.length > MAX_BUFFER_CHARS) {
+      throw new Error(`<${tag}> record longer than 16 MB without ${close}`);
+    }
   }
 }
 
@@ -122,6 +145,11 @@ function decodeEntities(s: string): string {
   return s.replace(/&(#x[\da-f]+|#\d+|quot|amp|lt|gt|apos);/gi, (whole, e: string) => {
     if (e[0] !== "#") return NAMED[e.toLowerCase()] ?? whole;
     const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-    return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    return isCodePoint(code) ? String.fromCodePoint(code) : whole;
   });
 }
+
+// fromCodePoint throws outside the Unicode range; lone surrogates would make
+// the stored JSON invalid UTF-8.
+const isCodePoint = (n: number) =>
+  Number.isInteger(n) && n >= 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff);

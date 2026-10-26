@@ -30,6 +30,28 @@ export interface MirrorSpec {
    * lookup answers, not a copy of the export.
    */
   keep?: string[];
+  /** Applied to a column's value before it is stored or indexed (e.g. trim personal data). */
+  transform?: Record<string, (v: string) => string>;
+}
+
+const SETTLEMENT = /^(?:м\.|с\.|(?:місто|село|селище|смт)(?!\p{L}))/iu;
+const STREET = /(?:^|\s)(?:вул|просп|пров|бульв|пл\.|кв\.|б\.|буд(?!\p{L}))/iu;
+
+/**
+ * ЄДР ФОП addresses are home addresses: keep the comma-separated parts up to
+ * the settlement ("м. Львів", "село Косівщина"), never the street, house or
+ * flat. Without a settlement marker only country, postcode and region remain.
+ */
+export function settlementOnly(address: string): string {
+  const parts = address
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const settlement = parts.findIndex((p) => SETTLEMENT.test(p));
+  const street = parts.findIndex((p) => STREET.test(p));
+  let end = settlement >= 0 ? settlement + 1 : Math.min(3, parts.length);
+  if (street >= 0 && street < end) end = street;
+  return parts.slice(0, end).join(", ");
 }
 
 export interface RegistryDef {
@@ -94,6 +116,7 @@ export const REGISTRIES: RegistryDef[] = [
       exact: [],
       text: ["NAME"],
       keep: ["STAN", "ADDRESS", "KVED", "REGISTRATION", "TERMINATED_INFO"],
+      transform: { ADDRESS: settlementOnly },
     },
   },
   {
