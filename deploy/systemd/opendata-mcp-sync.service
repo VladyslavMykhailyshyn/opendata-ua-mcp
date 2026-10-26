@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# 143 = stopped by SIGTERM after a clean rollback (not a failure).
+SuccessExitStatus=143
 User=opendata-mcp
 Group=opendata-mcp
 WorkingDirectory=/opt/opendata-mcp

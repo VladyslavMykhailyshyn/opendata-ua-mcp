@@ -233,25 +233,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
-  // Reject declared oversize bodies before reading, so the client gets a 413
-  // instead of a reset socket.
-  if (Number(req.headers["content-length"] ?? 0) > MAX_BODY_BYTES) {
-    return Promise.reject(new PayloadTooLargeError(false));
-  }
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let overflow = false;
-    req.on("data", (chunk: Buffer) => {
-      if (overflow) return; // draining
-      size += chunk.length;
-      if (size <= MAX_BODY_BYTES) {
-        chunks.push(chunk);
-        return;
-      }
-      // Keep reading so the socket can close cleanly after the 413: destroying
-      // it with unread input sends a RST and the client never sees the answer.
-      // An endless stream is cut after a short grace period.
+    // Keep reading so the socket can close cleanly after the 413: destroying
+    // it with unread input sends a RST and the client never sees the answer.
+    // An endless stream is cut after a short grace period. A declared
+    // oversize body goes the same way: answering before the client has
+    // finished sending races the close against its last packets.
+    const drain = () => {
       overflow = true;
       chunks.length = 0;
       const cut = setTimeout(() => reject(new PayloadTooLargeError(true)), DRAIN_GRACE_MS);
@@ -259,6 +250,16 @@ function readBody(req: IncomingMessage): Promise<string> {
         clearTimeout(cut);
         reject(new PayloadTooLargeError(false));
       });
+    };
+    if (Number(req.headers["content-length"] ?? 0) > MAX_BODY_BYTES) drain();
+    req.on("data", (chunk: Buffer) => {
+      if (overflow) return; // draining
+      size += chunk.length;
+      if (size <= MAX_BODY_BYTES) {
+        chunks.push(chunk);
+        return;
+      }
+      drain();
     });
     req.on("end", () => {
       if (!overflow) resolve(Buffer.concat(chunks).toString("utf8"));
