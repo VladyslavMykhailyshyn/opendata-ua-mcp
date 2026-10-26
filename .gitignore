@@ -11,3 +11,7 @@ output/
 
 # VPN configs (contain keys)
 *.ovpn
+
+# Portal analytics exports (internal data, not for the public repo)
+docs/*.csv
+docs/*.pdf

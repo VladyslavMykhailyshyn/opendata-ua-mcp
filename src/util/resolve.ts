@@ -2,6 +2,7 @@ import type { CkanClient } from "../ckan/client.js";
 import { packageSearch, packageShow } from "../ckan/actions.js";
 import type { CkanPackage } from "../ckan/types.js";
 import { CkanNotFoundError } from "../ckan/errors.js";
+import { assertPlainQuery } from "../ckan/solr.js";
 import { normalizeQuery } from "./unicode.js";
 
 // data.gov.ua slugs are mostly UUIDs; otherwise short latin without spaces.
@@ -12,9 +13,11 @@ function looksLikeId(s: string): boolean {
 /**
  * Resolve a user-supplied dataset reference (id/slug OR free-text title) to a
  * full package. Tries package_show for id-looking input; on miss (a one-word
- * topic that isn't a real slug) it falls back to search.
+ * topic that isn't a real slug) it falls back to search. `ckan` should be the
+ * view bound to the current tool call's signal.
  */
 export async function resolvePackage(ckan: CkanClient, ref: string): Promise<CkanPackage> {
+  assertPlainQuery(ref);
   if (looksLikeId(ref)) {
     try {
       return await packageShow(ckan, ref);

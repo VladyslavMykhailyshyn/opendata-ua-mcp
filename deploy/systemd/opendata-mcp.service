@@ -2,6 +2,9 @@
 Description=opendata-ua MCP server (Streamable HTTP)
 After=network-online.target
 Wants=network-online.target
+# A crash loop (bad config, port taken) stops after 5 tries in a minute.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -9,27 +12,52 @@ User=opendata-mcp
 Group=opendata-mcp
 WorkingDirectory=/opt/opendata-mcp
 # node:sqlite (lookup_record) still prints an ExperimentalWarning on Node 22.
-ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/opendata-mcp/dist/http.js
+# Heap cap stays under MemoryMax so V8 collects instead of the OOM killer.
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --max-old-space-size=1400 /opt/opendata-mcp/dist/http.js
 Environment=NODE_ENV=production
 Environment=MCP_HTTP_HOST=0.0.0.0
 Environment=MCP_HTTP_PORT=3000
 Environment=MIRROR_DIR=/var/lib/opendata-mcp
 Environment=LOG_LEVEL=info
+# Shared secret clients must send as "Authorization: Bearer <token>" (min 16 chars).
+#Environment=MCP_AUTH_TOKEN=
+# Accepted Host header values, comma-separated (DNS-rebinding guard), e.g. mcp.internal:3000.
+#Environment=MCP_ALLOWED_HOSTS=
 Restart=on-failure
 RestartSec=3
+# The server drains for 20 s on SIGTERM; give it room before SIGKILL.
+TimeoutStopSec=30
 
 # Hardening: the server only reads the mirror written by opendata-mcp-sync.
+# StateDirectory keeps /var/lib/opendata-mcp readable here (same user/group).
+StateDirectory=opendata-mcp
+StateDirectoryMode=0750
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
+TasksMax=256
 MemoryMax=2G
+# No MemoryDenyWriteExecute: V8's JIT needs writable+executable pages.
 
 [Install]
 WantedBy=multi-user.target

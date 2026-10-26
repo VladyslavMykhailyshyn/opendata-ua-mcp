@@ -34,8 +34,14 @@ export function makeEnvelope<T>(args: {
 /**
  * Guard against blowing the context window. If a payload exceeds the configured
  * char ceiling, drop trailing results and annotate. Returns serialized JSON.
+ * `hint` tells the caller how to get the rest when the tool has no offset
+ * paging (default: next_offset when the envelope carries one, else source_url).
  */
-export function capPayload<T>(env: Envelope<T>, config: Pick<Config, "maxResponseChars">): string {
+export function capPayload<T>(
+  env: Envelope<T>,
+  config: Pick<Config, "maxResponseChars">,
+  hint?: string,
+): string {
   let json = JSON.stringify(env);
   if (json.length <= config.maxResponseChars) return json;
 
@@ -45,10 +51,14 @@ export function capPayload<T>(env: Envelope<T>, config: Pick<Config, "maxRespons
   }
   capped.returned = capped.results.length;
   capped.more = true;
-  capped.next_offset = (env.next_offset ?? env.returned) - (env.returned - capped.returned);
+  const paged = env.next_offset !== undefined;
+  if (paged) capped.next_offset = env.next_offset! - (env.returned - capped.returned);
+  const how =
+    hint ??
+    (paged ? "Use next_offset or source_url for the rest." : "Use source_url for the rest.");
   capped.note =
     (env.note ? env.note + " " : "") +
-    `Response truncated to fit context budget (${capped.returned}/${env.count}). Use next_offset or source_url for the rest.`;
+    `Response truncated to fit context budget (${capped.returned}/${env.count}). ${how}`;
   json = JSON.stringify(capped);
   return json;
 }

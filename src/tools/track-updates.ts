@@ -5,8 +5,8 @@ import { normalizeQuery } from "../util/unicode.js";
 import type { ToolDef, ToolFactory } from "./types.js";
 
 const shape = {
-  topic: z.string().optional().describe("Фільтр за словом у назві датасету"),
-  organization: z.string().optional().describe("Фільтр за назвою/slug розпорядника"),
+  topic: z.string().max(300).optional().describe("Фільтр за словом у назві датасету"),
+  organization: z.string().max(300).optional().describe("Фільтр за назвою/slug розпорядника"),
   limit: z.number().int().min(1).max(50).default(15),
 };
 
@@ -17,11 +17,11 @@ export const trackUpdates: ToolFactory = (ctx): ToolDef => ({
   description:
     "Стрічка нещодавно оновлених датасетів на data.gov.ua (моніторинг). Можна звузити за темою або розпорядником. Повертає компактний список: назва, розпорядник, коли змінено, тип зміни, посилання.",
   inputSchema: shape,
-  handler: async (raw) => {
+  handler: async (raw, call) => {
     const args = schema.parse(raw);
     // Over-fetch so dedup + optional filtering still yield ~limit items.
     const fetchN = Math.min(args.limit * (args.topic || args.organization ? 8 : 4), 200);
-    const activities = await recentlyChanged(ctx.ckan, fetchN);
+    const activities = await recentlyChanged(ctx.ckan.withSignal(call.signal), fetchN);
 
     const topic = args.topic ? normalizeQuery(args.topic).toLowerCase() : undefined;
     const org = args.organization?.toLowerCase();

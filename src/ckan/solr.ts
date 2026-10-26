@@ -1,9 +1,19 @@
 /** Build a Solr `fq` filter-query string from structured filters. */
 
+import { ToolError } from "../util/errors.js";
+
 function quote(value: string): string {
   // Quote values containing spaces/special chars for Solr.
   if (/^[\w.-]+$/u.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
+  return `"${value.replace(/[\\"]/g, "\\$&")}"`;
+}
+
+/**
+ * Free-text `q` is passed to Solr as-is so users can use its syntax, but
+ * local params (`{!...}`) switch parsers and must never come from a client.
+ */
+export function assertPlainQuery(q: string | undefined): void {
+  if (q?.includes("{!")) throw new ToolError("Недопустимі символи у запиті.");
 }
 
 export interface DatasetFilters {

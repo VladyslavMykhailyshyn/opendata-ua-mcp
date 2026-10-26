@@ -48,10 +48,12 @@ function ctx(): ToolContext {
   return { ckan: new CkanClient(config, log), config, log };
 }
 
+const call = () => ({ signal: new AbortController().signal });
+
 describe("find_datasets", () => {
   it("returns slim projected hits with normalized formats and refine hints", async () => {
     const tool = findDatasets(ctx());
-    const out = JSON.parse(await tool.handler({ query: "екологія", limit: 5 }));
+    const out = JSON.parse(await tool.handler({ query: "екологія", limit: 5 }, call()));
 
     expect(out.count).toBe(42);
     const hit = out.results[0];
@@ -84,7 +86,7 @@ describe("find_datasets demand adaptations", () => {
         });
       }),
     );
-    const out = JSON.parse(await findDatasets(ctx()).handler({ query: "ЄДР", limit: 5 }));
+    const out = JSON.parse(await findDatasets(ctx()).handler({ query: "ЄДР", limit: 5 }, call()));
     expect(out.results[0].match).toBe("registry");
     expect(out.results[0].id).toBe("a1799820-195b-4982-8141-6e84f58103e7");
     expect(out.results[1].id).toBe("uuid-1"); // search hits follow
@@ -103,7 +105,9 @@ describe("find_datasets demand adaptations", () => {
         return HttpResponse.json(fixture);
       }),
     );
-    const out = JSON.parse(await findDatasets(ctx()).handler({ query: "тролейбуси полтава" }));
+    const out = JSON.parse(
+      await findDatasets(ctx()).handler({ query: "тролейбуси полтава" }, call()),
+    );
     expect(queries).toEqual([
       "тролейбуси полтава",
       "text:(тролейбу* AND полта*)",
@@ -119,7 +123,40 @@ describe("find_datasets demand adaptations", () => {
         HttpResponse.json({ success: true, result: { count: 0, results: [] } }),
       ),
     );
-    const out = JSON.parse(await findDatasets(ctx()).handler({ query: "дія вхід" }));
+    const out = JSON.parse(await findDatasets(ctx()).handler({ query: "дія вхід" }, call()));
     expect(out.elsewhere[0].url).toBe("https://diia.gov.ua");
+  });
+});
+
+describe("find_datasets input guards", () => {
+  it("rejects Solr local params in the query", async () => {
+    await expect(
+      findDatasets(ctx()).handler({ query: "{!xmlparser v='<x/>'}" }, call()),
+    ).rejects.toThrow("Недопустимі символи");
+  });
+
+  it("rejects over-long free text and too many tags", async () => {
+    const tool = findDatasets(ctx());
+    await expect(tool.handler({ query: "x".repeat(301) }, call())).rejects.toThrow();
+    await expect(
+      tool.handler({ tags: Array.from({ length: 11 }, () => "t") }, call()),
+    ).rejects.toThrow();
+    await expect(tool.handler({ offset: 10_001 }, call())).rejects.toThrow();
+  });
+
+  it("stops before calling the portal when the call signal is already aborted", async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${BASE}/package_search`, () => {
+        calls++;
+        return HttpResponse.json(fixture);
+      }),
+    );
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      findDatasets(ctx()).handler({ query: "екологія" }, { signal: ac.signal }),
+    ).rejects.toThrow();
+    expect(calls).toBe(0);
   });
 });

@@ -13,6 +13,8 @@ import { trackUpdates } from "../src/tools/track-updates.js";
 const config = loadConfig();
 const log = createLogger({ logLevel: "warn" });
 const ctx: ToolContext = { ckan: new CkanClient(config, log), config, log };
+// Every handler needs a call context; one generous deadline for the whole run.
+const call = () => ({ signal: AbortSignal.timeout(120_000) });
 
 function report(name: string, payload: string) {
   const kb = (payload.length / 1024).toFixed(1);
@@ -22,24 +24,24 @@ function report(name: string, payload: string) {
 
 async function run() {
   const find = findDatasets(ctx);
-  const fr = await find.handler({ query: "екологія", limit: 3 });
+  const fr = await find.handler({ query: "екологія", limit: 3 }, call());
   report("find_datasets", fr);
   const firstId = JSON.parse(fr).results?.[0]?.id;
 
   const explore = exploreCatalog(ctx);
-  report("explore_catalog", await explore.handler({ query: "бюджет", group_by: "organization", limit: 5 }));
+  report("explore_catalog", await explore.handler({ query: "бюджет", group_by: "organization", limit: 5 }, call()));
 
   const inspect = inspectDataset(ctx);
-  if (firstId) report("inspect_dataset", await inspect.handler({ dataset: firstId }));
+  if (firstId) report("inspect_dataset", await inspect.handler({ dataset: firstId }, call()));
 
   // get_dataset_data against a real CSV dataset (exercises download+decode+parse).
   const data = getDatasetData(ctx);
-  const csvFind = await find.handler({ query: "*", format: "CSV", limit: 5 });
+  const csvFind = await find.handler({ query: "*", format: "CSV", limit: 5 }, call());
   const csvCandidates = JSON.parse(csvFind).results ?? [];
   let dataDone = false;
   for (const c of csvCandidates) {
     try {
-      const out = await data.handler({ dataset: c.id, limit: 3 });
+      const out = await data.handler({ dataset: c.id, limit: 3 }, call());
       report(`get_dataset_data [${c.id}]`, out);
       dataDone = true;
       break;
@@ -56,14 +58,14 @@ async function run() {
       await filter.handler({
         resource_id: "a203fe11-6235-4a50-b10e-fe9f6a95aba8",
         sql: 'SELECT * FROM "a203fe11-6235-4a50-b10e-fe9f6a95aba8" LIMIT 2',
-      }),
+      }, call()),
     );
   } catch (e) {
     console.log("filter_data:", (e as Error).message);
   }
 
   const track = trackUpdates(ctx);
-  report("track_updates", await track.handler({ limit: 3 }));
+  report("track_updates", await track.handler({ limit: 3 }, call()));
 
   console.log("\nSMOKE OK");
 }
