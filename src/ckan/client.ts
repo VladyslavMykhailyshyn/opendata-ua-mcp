@@ -1,6 +1,7 @@
 import type { Config } from "../config.js";
 import type { Logger } from "../util/logger.js";
 import { createCache } from "../util/cache.js";
+import { Semaphore } from "../util/semaphore.js";
 import { CkanError, CkanServerError, toCkanError } from "./errors.js";
 
 export interface CkanCallOptions {
@@ -27,22 +28,34 @@ const RETRYABLE = new Set([0, 429, 500, 502, 503, 504]);
 export class CkanClient {
   private readonly cache: ReturnType<typeof createCache<object>>;
   private readonly defaultSignal?: AbortSignal;
+  /** Process-wide cap on simultaneous requests to the portal (API + downloads). */
+  readonly upstream: Semaphore;
 
   constructor(
     private readonly config: Config,
     private readonly log: Logger,
-    shared?: { cache: ReturnType<typeof createCache<object>>; signal?: AbortSignal },
+    shared?: {
+      cache: ReturnType<typeof createCache<object>>;
+      upstream: Semaphore;
+      signal?: AbortSignal;
+    },
   ) {
     this.cache = shared?.cache ?? createCache<object>(config.cacheTtlSeconds);
+    this.upstream = shared?.upstream ?? new Semaphore(config.maxConcurrentUpstream, 1000);
     this.defaultSignal = shared?.signal;
   }
 
   /**
-   * A view of this client bound to a tool call's signal: same cache, every
-   * call aborts when the client disconnects or the tool deadline passes.
+   * A view of this client bound to a tool call's signal: same cache and
+   * upstream limiter, every call aborts when the client disconnects or the
+   * tool deadline passes.
    */
   withSignal(signal: AbortSignal): CkanClient {
-    return new CkanClient(this.config, this.log, { cache: this.cache, signal });
+    return new CkanClient(this.config, this.log, {
+      cache: this.cache,
+      upstream: this.upstream,
+      signal,
+    });
   }
 
   async call<T>(
