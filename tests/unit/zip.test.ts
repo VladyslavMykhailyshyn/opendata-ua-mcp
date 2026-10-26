@@ -30,4 +30,11 @@ describe("pickBestZipEntry", () => {
     const buf = makeZip({ "data.xml": "<r/>", "data.csv": "a\n1" });
     expect(pickBestZipEntry(buf).best?.format).toBe("CSV");
   });
+
+  it("accepts an entry exactly at maxBytes", () => {
+    const buf = makeZip({ "data.csv": "a\n1" });
+    const r = pickBestZipEntry(buf, 3);
+    expect(r.best?.buffer.toString()).toBe("a\n1");
+    expect(r.skipped).toBe(0);
+  });
 });

@@ -1,8 +1,10 @@
 import AdmZip from "adm-zip";
+import { ToolError } from "./errors.js";
 import { normalizeFormat } from "./formats.js";
 
 // Same preference as resource-picker: structured + parseable first.
 const PREFERENCE = ["CSV", "TSV", "JSON", "GEOJSON", "XLSX", "XLS", "ODS", "XML"];
+const MAX_NAMES = 20;
 
 export interface ZipEntry {
   name: string;
@@ -13,26 +15,46 @@ export interface ZipEntry {
 /**
  * Open a ZIP and return its best parseable inner entry (data registries on
  * data.gov.ua — ЄДР, debtors — ship as ZIP with CSV/XML inside). Returns the
- * full entry list too, so callers can report when nothing is parseable.
+ * entry list (capped) too, so callers can report when nothing is parseable.
+ *
+ * Entries whose declared size exceeds `maxBytes` and encrypted entries are
+ * never inflated; only the chosen entry is inflated, exactly once, and its
+ * real size is checked afterwards because adm-zip trusts the header.
  */
-export function pickBestZipEntry(zipBuffer: Buffer): { best?: ZipEntry; names: string[] } {
+export function pickBestZipEntry(
+  zipBuffer: Buffer,
+  maxBytes = Infinity,
+): { best?: ZipEntry; names: string[]; skipped: number } {
   const zip = new AdmZip(zipBuffer);
   const entries = zip.getEntries().filter((e) => !e.isDirectory);
-  const names = entries.map((e) => e.entryName);
+  const names = entries.slice(0, MAX_NAMES).map((e) => e.entryName);
 
-  let best: ZipEntry | undefined;
+  let chosen: AdmZip.IZipEntry | undefined;
+  let chosenFmt = "";
   let bestRank = Infinity;
+  let skipped = 0;
   for (const e of entries) {
     const ext = e.entryName.split(".").pop() ?? "";
     const fmt = normalizeFormat(ext);
     const rank = PREFERENCE.indexOf(fmt);
     if (rank === -1) continue;
+    if ((e.header.flags & 1) !== 0 || e.header.size > maxBytes) {
+      skipped++;
+      continue;
+    }
     if (rank < bestRank) {
       bestRank = rank;
-      best = { name: e.entryName, format: fmt, buffer: e.getData() };
+      chosen = e;
+      chosenFmt = fmt;
     }
   }
-  return { best, names };
+  if (!chosen) return { names, skipped };
+
+  const buffer = chosen.getData();
+  if (buffer.length > maxBytes) {
+    throw new ToolError("Файл в архіві більший за ліміт завантаження.");
+  }
+  return { best: { name: chosen.entryName, format: chosenFmt, buffer }, names, skipped };
 }
 
 /**
