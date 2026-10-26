@@ -7,8 +7,10 @@ import {
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CkanClient } from "./ckan/client.js";
 import { loadConfig } from "./config.js";
+import { MirrorReader } from "./mirror/store.js";
 import { createServer, type ServerDeps } from "./server.js";
 import { createLogger } from "./util/logger.js";
+import { Semaphore } from "./util/semaphore.js";
 
 // JSON-RPC requests from MCP clients are small; anything bigger is abuse.
 const MAX_BODY_BYTES = 1_000_000;
@@ -24,13 +26,18 @@ export function createHttpApp(deps: ServerDeps = {}): Server {
   const config = deps.config ?? loadConfig();
   const log = deps.log ?? createLogger(config);
   const ckan = deps.ckan ?? new CkanClient(config, log);
+  // Shared across every request: SQLite handles and the in-flight cap.
+  const mirror = deps.mirror ?? (config.mirrorDir ? new MirrorReader(config.mirrorDir) : undefined);
+  const limiter = deps.limiter ?? new Semaphore(config.maxConcurrentTools, config.maxQueuedTools);
 
-  return createNodeServer((req, res) => {
+  const app = createNodeServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
       log.error("http handler failed", { message: (err as Error).message });
       if (!res.headersSent) sendJsonRpcError(res, 500, -32603, "Internal server error");
     });
   });
+  app.on("close", () => mirror?.close());
+  return app;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const path = (req.url ?? "/").split("?")[0];
@@ -62,7 +69,7 @@ export function createHttpApp(deps: ServerDeps = {}): Server {
       return;
     }
 
-    const server = createServer({ config, log, ckan });
+    const server = createServer({ config, log, ckan, mirror, limiter });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

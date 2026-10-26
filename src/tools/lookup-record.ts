@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { MIRRORED } from "../registries.js";
-import { MirrorReader } from "../mirror/store.js";
 import { datasetUrl } from "../util/humanize.js";
 import { capPayload, makeEnvelope } from "../util/envelope.js";
 import type { ToolDef, ToolFactory } from "./types.js";
@@ -31,7 +30,8 @@ const MAX_FIELD_CHARS = 500;
  * dist/sync.js). Registered only when MIRROR_DIR is configured.
  */
 export const lookupRecord: ToolFactory = (ctx): ToolDef => {
-  const reader = new MirrorReader(ctx.config.mirrorDir!);
+  // One reader per process (ServerDeps.mirror); never open handles per call.
+  const reader = ctx.mirror!;
   return {
     name: "lookup_record",
     description:

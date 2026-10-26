@@ -25,13 +25,24 @@ const RETRYABLE = new Set([0, 429, 500, 502, 503, 504]);
  * 5xx/network, Retry-After, and an LRU cache for idempotent calls.
  */
 export class CkanClient {
-  private readonly cache;
+  private readonly cache: ReturnType<typeof createCache<object>>;
+  private readonly defaultSignal?: AbortSignal;
 
   constructor(
     private readonly config: Config,
     private readonly log: Logger,
+    shared?: { cache: ReturnType<typeof createCache<object>>; signal?: AbortSignal },
   ) {
-    this.cache = createCache<object>(config.cacheTtlSeconds);
+    this.cache = shared?.cache ?? createCache<object>(config.cacheTtlSeconds);
+    this.defaultSignal = shared?.signal;
+  }
+
+  /**
+   * A view of this client bound to a tool call's signal: same cache, every
+   * call aborts when the client disconnects or the tool deadline passes.
+   */
+  withSignal(signal: AbortSignal): CkanClient {
+    return new CkanClient(this.config, this.log, { cache: this.cache, signal });
   }
 
   async call<T>(
@@ -46,7 +57,8 @@ export class CkanClient {
       if (hit !== undefined) return hit as T;
     }
 
-    const result = await this.callWithRetry<T>(action, params, method, opts.signal);
+    const signal = combineSignals(opts.signal, this.defaultSignal);
+    const result = await this.callWithRetry<T>(action, params, method, signal);
     if (cacheKey) this.cache.set(cacheKey, result as object);
     return result;
   }
@@ -147,4 +159,9 @@ function parseRetryAfter(value: string): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function combineSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+  if (a && b) return AbortSignal.any([a, b]);
+  return a ?? b;
 }
