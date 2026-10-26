@@ -1,6 +1,6 @@
-import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { XMLParser } from "fast-xml-parser";
+import { DelimitedReader } from "./delimited.js";
 
 export interface ParsedTable {
   columns: { col: string; type: string }[];
@@ -35,26 +35,14 @@ function summarize(rows: Record<string, unknown>[], previewLimit: number): Parse
   return { columns, rows: rows.slice(0, previewLimit), rowCount: rows.length };
 }
 
-/** Sniff the delimiter from the header line — Ukrainian CSVs often use ';'. */
-function sniffDelimiter(text: string): string {
-  const firstLine = text.slice(0, text.indexOf("\n") + 1 || text.length);
-  const counts: Record<string, number> = {
-    ";": (firstLine.match(/;/g) ?? []).length,
-    ",": (firstLine.match(/,/g) ?? []).length,
-    "\t": (firstLine.match(/\t/g) ?? []).length,
-    "|": (firstLine.match(/\|/g) ?? []).length,
-  };
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]![0];
-}
-
 export function parseCsv(text: string, previewLimit: number): ParsedTable {
-  const parsed = Papa.parse<Record<string, unknown>>(text, {
-    header: true,
-    skipEmptyLines: true,
-    dynamicTyping: false,
-    delimiter: sniffDelimiter(text),
-  });
-  return summarize(parsed.data, previewLimit);
+  const reader = new DelimitedReader();
+  const rows: Record<string, unknown>[] = [];
+  for (const line of text.split("\n")) {
+    const row = reader.push(line.endsWith("\r") ? line.slice(0, -1) : line);
+    if (row) rows.push(row);
+  }
+  return summarize(rows, previewLimit);
 }
 
 export function parseXlsx(buffer: Buffer, previewLimit: number): ParsedTable {
@@ -67,17 +55,73 @@ export function parseXlsx(buffer: Buffer, previewLimit: number): ParsedTable {
 }
 
 export function parseJsonTable(text: string, previewLimit: number): ParsedTable {
-  const data = JSON.parse(text);
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    // A truncated download is invalid JSON as a whole, but every record before
+    // the cut is intact — recover those instead of failing the preview.
+    const salvaged = salvageJsonRecords(text);
+    if (salvaged.length === 0) throw err;
+    return summarize(salvaged, previewLimit);
+  }
   const rows: Record<string, unknown>[] = Array.isArray(data)
     ? data
     : Array.isArray((data as { result?: unknown }).result)
-      ? ((data as { result: Record<string, unknown>[] }).result)
+      ? (data as { result: Record<string, unknown>[] }).result
       : [data as Record<string, unknown>];
   return summarize(rows, previewLimit);
 }
 
+/**
+ * Recover complete objects from the first array of objects in a (possibly
+ * truncated) JSON text. Scans with string/escape awareness and stops at the
+ * first incomplete object.
+ */
+export function salvageJsonRecords(text: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const arrayStart = text.search(/\[\s*\{/);
+  if (arrayStart < 0) return out;
+  let i = text.indexOf("{", arrayStart);
+  while (i >= 0 && i < text.length) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let j = i;
+    for (; j < text.length; j++) {
+      const c = text[j];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (c === "\\") escaped = true;
+        else if (c === '"') inString = false;
+        continue;
+      }
+      if (c === '"') inString = true;
+      else if (c === "{" || c === "[") depth++;
+      else if (c === "}" || c === "]") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (j >= text.length) break; // object cut off by truncation
+    try {
+      out.push(JSON.parse(text.slice(i, j + 1)) as Record<string, unknown>);
+    } catch {
+      break;
+    }
+    let k = j + 1;
+    while (k < text.length && (text[k] === "," || /\s/.test(text[k]!))) k++;
+    if (text[k] !== "{") break; // end of the array
+    i = k;
+  }
+  return out;
+}
+
 /** Find the largest array of object-records anywhere in a parsed structure. */
-function largestRecordArray(node: unknown, best: Record<string, unknown>[] = []): Record<string, unknown>[] {
+function largestRecordArray(
+  node: unknown,
+  best: Record<string, unknown>[] = [],
+): Record<string, unknown>[] {
   if (Array.isArray(node)) {
     const objs = node.filter((x) => x && typeof x === "object" && !Array.isArray(x));
     if (objs.length > best.length) best = objs as Record<string, unknown>[];

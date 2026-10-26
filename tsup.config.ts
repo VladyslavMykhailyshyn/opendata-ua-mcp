@@ -3,6 +3,8 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: {
     stdio: "src/stdio.ts",
+    http: "src/http.ts",
+    sync: "src/sync.ts",
     index: "src/index.ts",
   },
   format: ["esm"],

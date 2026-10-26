@@ -30,6 +30,8 @@ export interface DatasetHit {
   n_resources: number;
   why_relevant?: string;
   dataset_url: string;
+  /** "registry" when pinned by name (see registries.ts), not by search rank. */
+  match?: "registry";
 }
 
 export function toDatasetHit(pkg: CkanPackage): DatasetHit {

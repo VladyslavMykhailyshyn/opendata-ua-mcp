@@ -1,0 +1,35 @@
+[Unit]
+Description=opendata-ua MCP server (Streamable HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opendata-mcp
+Group=opendata-mcp
+WorkingDirectory=/opt/opendata-mcp
+# node:sqlite (lookup_record) still prints an ExperimentalWarning on Node 22.
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/opendata-mcp/dist/http.js
+Environment=NODE_ENV=production
+Environment=MCP_HTTP_HOST=0.0.0.0
+Environment=MCP_HTTP_PORT=3000
+Environment=MIRROR_DIR=/var/lib/opendata-mcp
+Environment=LOG_LEVEL=info
+Restart=on-failure
+RestartSec=3
+
+# Hardening: the server only reads the mirror written by opendata-mcp-sync.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

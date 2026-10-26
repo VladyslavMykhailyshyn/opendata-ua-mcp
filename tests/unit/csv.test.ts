@@ -34,3 +34,11 @@ describe("parseXmlTable", () => {
     expect(t.columns.map((c) => c.col).sort()).toEqual(["name", "year"]);
   });
 });
+
+describe("parseCsv on malformed gov exports", () => {
+  it("keeps unescaped inner quotes inside the field (VAT payers register)", () => {
+    const csv = '"name";"kod_pdv"\r\n"ТОВ "ЗОНТА-ТРАНС"";"356383613199"\r\n';
+    const t = parseCsv(csv, 5);
+    expect(t.rows).toEqual([{ name: 'ТОВ "ЗОНТА-ТРАНС"', kod_pdv: "356383613199" }]);
+  });
+});

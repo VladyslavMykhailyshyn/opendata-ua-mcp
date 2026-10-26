@@ -73,3 +73,15 @@ export function decodeText(buffer: Buffer, contentType?: string): string {
   // Default/utf-8: strict-decode to detect invalid byte sequences, else cp1251.
   return tryDecode("utf-8", true) ?? new TextDecoder("windows-1251").decode(buffer);
 }
+
+/**
+ * A byte-capped download ends mid-row and often mid-character: a split UTF-8
+ * sequence fails strict decoding and the text falls back to Windows-1251
+ * (mojibake). Cutting at the last newline fixes both — "
+" is ASCII and never
+ * occurs inside a multi-byte UTF-8 or Windows-1251 sequence.
+ */
+export function trimToLastLine(buffer: Buffer): Buffer {
+  const nl = buffer.lastIndexOf(0x0a);
+  return nl > 0 ? buffer.subarray(0, nl + 1) : buffer;
+}
